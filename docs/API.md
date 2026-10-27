@@ -153,7 +153,7 @@ curl -b jar.txt -H 'Content-Type: application/json' -H 'X-Requested-By: nst-app'
 
 ## 4. Data Export API (`/api/export/v1`)
 
-Read-only, same contract on every Neumann platform, used to load data into Fabric. Key authentication only (section 2). If no key is configured the endpoints return 404. Setup and the notebook are in [../docs/FABRIC-INGESTION.md](../docs/FABRIC-INGESTION.md); the standard is [../docs/PLATFORM-STANDARD.md](../docs/PLATFORM-STANDARD.md) section 14.
+Read-only, same contract on every Neumann platform, used to load data into Fabric. Key authentication only (section 2). If no key is configured the endpoints return 404. Setup and the notebook are in [../docs/FABRIC-INGESTION.md](FABRIC-INGESTION.md); the standard is [../docs/PLATFORM-STANDARD.md](PLATFORM-STANDARD.md) section 14.
 
 | Method and path | Purpose |
 |---|---|

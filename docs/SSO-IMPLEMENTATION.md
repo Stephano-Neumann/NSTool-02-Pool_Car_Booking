@@ -1,6 +1,6 @@
 # Implementing SSO (Microsoft Entra ID)
 
-How to switch this platform from test sign-in to single sign-on. The same steps apply to every platform built to the [Platform Standard](../docs/PLATFORM-STANDARD.md).
+How to switch this platform from test sign-in to single sign-on. The same steps apply to every platform built to the [Platform Standard](PLATFORM-STANDARD.md).
 
 **Status:** the app side is built and unit-tested with simulated headers. The Azure and Entra steps below have **not** been run against a real tenant, so treat the first run as a trial and fix small differences as you find them. Several steps need Entra or subscription rights; if you do not have them, send this document to IT.
 
