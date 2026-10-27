@@ -1,0 +1,22 @@
+# Local test run:  docker compose up --build   →  http://localhost:8080
+# Reset all data:  docker compose down -v
+services:
+  app:
+    build:
+      context: .
+      args:
+        APP_VERSION: local
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: local
+      AUTH_MODE: local
+      SEED_TEST_DATA: "true"      # test logins + sample data (password for all: neumansteel123)
+      SQLITE_JOURNAL_MODE: WAL
+      PLATFORM_NAME: car-booking
+      DATA_API_KEY: nst-test-data-api-key   # Data Export API (Fabric) — test value, local only
+    volumes:
+      - nst-data:/data            # the SQLite database survives restarts and rebuilds
+
+volumes:
+  nst-data:

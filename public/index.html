@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Neumann Steel Company Car Booking</title>
+
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0E1B31">
+<link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NST Car Booking">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Archivo+Narrow:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="loadingScreen" class="landing"><div class="landing-card"><img src="/assets/logo.png" alt="Neumann Steel" class="landing-logo"></div></div>
+
+<div id="loginScreen" class="landing" style="display:none;">
+  <div class="landing-card">
+    <img src="/assets/logo.png" alt="Neumann Steel" class="landing-logo">
+    <form id="loginForm" class="login-form" autocomplete="on">
+      <div class="error-msg" id="loginError"></div>
+      <div class="field">
+        <label for="l-email">Email</label>
+        <input id="l-email" name="email" type="email" autocomplete="username" placeholder="you@neumannsteel.com.au" required>
+      </div>
+      <div class="field">
+        <label for="l-password">Password</label>
+        <input id="l-password" name="password" type="password" autocomplete="current-password" placeholder="Password" required>
+      </div>
+      <button type="submit" class="btn-primary landing-btn" id="submitLogin">Sign in</button>
+    </form>
+    <div class="test-logins" id="testLoginsBox" style="display:none;"></div>
+  </div>
+  <div class="env-badge" id="envBadge" style="display:none;"></div>
+</div>
+
+<div id="landingScreen" class="landing" style="display:none;">
+  <div class="landing-card">
+    <img src="/assets/logo.png" alt="Neumann Steel" class="landing-logo">
+    <div class="landing-welcome" id="landingWelcome"></div>
+    <div class="landing-actions">
+      <button class="btn-primary landing-btn" id="companyCarBtn">Company Car</button>
+      <button class="btn-primary landing-btn" id="driverLoginBtn">Pool Car Booking</button>
+      <button class="btn-primary landing-btn" id="incidentMgmtBtn">Incident Management</button>
+    </div>
+    <div class="landing-links">
+      <button class="link-btn" id="landingProfileBtn">My profile</button>
+      <button class="link-btn" id="landingPasswordBtn">Change password</button>
+      <button class="link-btn" id="landingLogoutBtn">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" id="appContainer" style="display:none;">
+
+  <header class="top">
+    <div class="brand">
+      <div class="brand-logo-chip"><img src="/assets/logo.png" alt="Neumann Steel" class="brand-logo"></div>
+      <div>
+        <h1>Company car booking</h1>
+        <div class="subtitle">Reserve a company vehicle and check what's free</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn-primary" id="newBookingBtn">+ New booking</button>
+    </div>
+  </header>
+
+  <div class="session-bar" id="sessionBar" style="display:none;">
+    <div class="who">Logged in as <b id="sessionName"></b></div>
+    <div class="session-actions">
+      <button id="menuBtn">Menu</button>
+      <button id="passwordBtn">Change password</button>
+      <button id="logoutBtn">Log out</button>
+    </div>
+  </div>
+
+  <section class="panel" id="myBookingsPanel" style="display:none;">
+    <div class="panel-title"><span>My bookings</span></div>
+    <div class="board-scroll">
+    <table class="mine">
+      <thead>
+        <tr><th>Vehicle</th><th>Scheduled</th><th>Use</th><th>Status</th><th>Trip log</th><th></th></tr>
+      </thead>
+      <tbody id="myBookingsBody"></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel" id="adminPendingPanel" style="display:none;">
+    <div class="panel-title"><span>Pending approvals</span></div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr>
+          <th>Vehicle</th><th>Driver</th><th>Licence #</th><th>Department</th><th>Cost centre</th><th>Use</th><th>Requested</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="adminPendingBody"></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel" id="adminDriversPanel" style="display:none;">
+    <div class="panel-title"><span>Drivers</span></div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr>
+          <th>Driver</th><th>Email</th><th>Licence #</th><th>Policy confirmation</th><th>Bookings</th><th>Total km</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="adminDriversBody"></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel" id="adminFleetPanel" style="display:none;">
+    <div class="panel-title">
+      <span>Fleet</span>
+      <button class="btn-primary" id="addVehicleBtn" style="padding:7px 14px;font-size:12.5px;">+ Add vehicle</button>
+    </div>
+    <div class="tab-group">
+      <button class="tab-btn active" id="fleetTabActive">Active</button>
+      <button class="tab-btn" id="fleetTabArchived">Archived</button>
+    </div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Rego</th><th>Vehicle</th><th></th></tr>
+      </thead>
+      <tbody id="fleetBody"></tbody>
+    </table>
+    </div>
+    <div class="data-note">Double-click a row to edit vehicle details.</div>
+  </section>
+
+  <section class="panel" id="adminProfilesPanel" style="display:none;">
+    <div class="panel-title">
+      <span>Admin profiles</span>
+      <button class="btn-primary" id="addAdminProfileBtn" style="padding:7px 14px;font-size:12.5px;">+ Add profile</button>
+    </div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Name</th><th>Email</th><th></th></tr>
+      </thead>
+      <tbody id="adminProfilesBody"></tbody>
+    </table>
+    </div>
+    <div class="data-note">Everyone listed here receives an alert email whenever a booking is made or approved.</div>
+  </section>
+
+  <section class="panel" id="alertsPanel" style="display:none;">
+    <div class="panel-title"><span>Alerts</span></div>
+    <div class="form-grid" style="grid-template-columns:1fr auto;align-items:end;margin-bottom:18px;">
+      <div class="field">
+        <label for="alert-webhook">Email alert webhook URL</label>
+        <input id="alert-webhook" type="text" placeholder="Paste your Power Automate HTTP trigger URL here">
+      </div>
+      <button class="btn-primary" id="saveWebhookBtn" style="padding:9px 16px;">Save</button>
+    </div>
+    <div class="data-note" style="margin-bottom:16px;">Without a webhook URL, alerts are still logged below but no email is actually sent.</div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>When</th><th>Event</th><th>Recipients</th><th>Delivered</th></tr>
+      </thead>
+      <tbody id="alertsLogBody"></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel" id="policyDocPanel" style="display:none;">
+    <div class="panel-title"><span>Policy document</span></div>
+    <div class="error-msg" id="policyDocError"></div>
+    <div class="data-note" id="policyDocStatus" style="margin-bottom:14px;">No policy document uploaded yet.</div>
+    <div class="dropzone" id="policyDropzone">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+      <p style="margin:0;">Drag a PDF here, or click to browse</p>
+      <input type="file" id="policyFileInput" accept="application/pdf,.pdf" style="display:none;">
+    </div>
+    <div id="policyDocActions" style="display:none;gap:10px;margin-top:14px;">
+      <button class="btn-ghost" id="viewPolicyDocBtn">View current PDF</button>
+      <button class="btn-danger" id="removePolicyDocBtn">Remove</button>
+    </div>
+  </section>
+
+  <section class="panel" id="companyVehiclesPanel" style="display:none;">
+    <div class="panel-title">
+      <span>Company vehicles</span>
+      <button class="btn-primary" id="addCompanyVehicleBtn" style="padding:7px 14px;font-size:12.5px;">+ Add vehicle</button>
+    </div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Rego</th><th>Vehicle</th><th>Due service</th><th></th></tr>
+      </thead>
+      <tbody id="companyVehiclesBody"></tbody>
+    </table>
+    </div>
+    <div class="data-note">A separate register from the pool car fleet — these are the permanently allocated company vehicles.</div>
+  </section>
+
+  <section class="panel" id="companyCarAllocPanel" style="display:none;">
+    <div class="panel-title">
+      <span>Company car allocations</span>
+      <button class="btn-primary" id="addAllocationBtn" style="padding:7px 14px;font-size:12.5px;">+ Add allocation</button>
+    </div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Driver</th><th>Email</th><th>Rego</th><th>Vehicle</th><th></th></tr>
+      </thead>
+      <tbody id="companyCarAllocBody"></tbody>
+    </table>
+    </div>
+    <div class="data-note">The driver is matched by the email they sign in with. Once allocated, they see their vehicle, monthly prestart check, and monthly km log under "Company Car" on the menu.</div>
+  </section>
+
+  <section class="panel" id="companyCarActivityPanel" style="display:none;">
+    <div class="panel-title"><span>Company car activity — this month</span></div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Driver</th><th>Rego</th><th>Prestart</th><th>KM recorded</th></tr>
+      </thead>
+      <tbody id="companyCarActivityBody"></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel" id="incidentAdminPanel" style="display:none;">
+    <div class="panel-title"><span>Incident reports</span></div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Submitted</th><th>Reported by</th><th>Description</th><th>Third party involved</th><th></th></tr>
+      </thead>
+      <tbody id="incidentAdminBody"></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <span>Availability board</span>
+      <div class="legend">
+        <span><i class="dot avail"></i>Available</span>
+        <span><i class="dot booked"></i>Business use</span>
+        <span><i class="dot private"></i>Private use</span>
+      </div>
+    </div>
+
+    <div class="week-nav" style="margin-bottom:14px; width:fit-content;">
+      <button id="prevWeek">‹ Prev</button>
+      <span class="week-label" id="weekLabel"></span>
+      <button id="nextWeek">Next ›</button>
+      <button id="todayBtn" class="btn-ghost">This week</button>
+    </div>
+
+    <div class="board-scroll">
+      <table class="board" id="boardTable">
+        <thead><tr id="boardHead"></tr></thead>
+        <tbody id="boardBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" id="upcomingPanel">
+    <div class="panel-title"><span>Upcoming bookings</span></div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr>
+          <th>Vehicle</th><th>Driver</th><th>Department</th><th>Use</th><th>Status</th><th>Pick up</th><th>Return</th><th>Trip log</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="upcomingBody"></tbody>
+    </table>
+    </div>
+    <div class="data-note">Bookings are stored centrally and visible to everyone using this tool.</div>
+  </section>
+
+</div>
+
+<div class="wrap" id="companyCarContainer" style="display:none;">
+
+  <header class="top">
+    <div class="brand">
+      <div class="brand-logo-chip"><img src="/assets/logo.png" alt="Neumann Steel" class="brand-logo"></div>
+      <div>
+        <h1>Company car</h1>
+        <div class="subtitle">Your permanently allocated vehicle</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn-ghost" id="companyCarMenuBtn">Menu</button>
+      <button class="btn-ghost" id="companyCarLogoutBtn">Log out</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="panel-title"><span>Your vehicle</span></div>
+    <div id="companyCarVehicleInfo"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><span>Monthly prestart check</span></div>
+    <div id="companyCarPrestartArea"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><span>Monthly kilometres</span></div>
+    <div id="companyCarKmArea"></div>
+  </section>
+
+</div>
+
+<div class="wrap" id="incidentContainer" style="display:none;">
+  <header class="top">
+    <div class="brand">
+      <div class="brand-logo-chip"><img src="/assets/logo.png" alt="Neumann Steel" class="brand-logo" id="incidentLogoImg"></div>
+      <div>
+        <h1>Incident report</h1>
+        <div class="subtitle">Report a vehicle incident</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn-ghost" id="incidentMenuBtn">Menu</button>
+      <button class="btn-ghost" id="incidentLogoutBtn">Log out</button>
+    </div>
+  </header>
+  <section class="panel" id="incidentFormPanel"></section>
+  <section class="panel" id="incidentMyReportsPanel">
+    <div class="panel-title"><span>My submitted reports</span></div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead><tr><th>Submitted</th><th>Description</th><th>Third party involved</th><th></th></tr></thead>
+      <tbody id="incidentMyReportsBody"></tbody>
+    </table>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>New booking</h2>
+      <button class="modal-close" id="closeModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="errorMsg"></div>
+      <div class="data-note" id="bookingIdentityNote" style="display:none;margin-bottom:14px;"></div>
+      <div class="form-grid">
+        <div class="field full">
+          <label for="f-vehicle">Vehicle</label>
+          <select id="f-vehicle"></select>
+        </div>
+
+        <div class="field">
+          <label for="f-name">Driver name</label>
+          <input id="f-name" type="text" placeholder="Full name">
+        </div>
+        <div class="field">
+          <label for="f-license">Driver's licence #</label>
+          <input id="f-license" type="text" placeholder="Licence number">
+        </div>
+        <div class="field full" id="f-email-wrap" style="display:none;">
+          <label for="f-email">Driver email (optional, for booking alerts)</label>
+          <input id="f-email" type="email" placeholder="name@neumannsteel.com.au">
+        </div>
+
+        <div class="field">
+          <label for="f-dept">Department</label>
+          <input id="f-dept" list="dept-list" placeholder="e.g. Logistics & Transport">
+          <datalist id="dept-list">
+            <option value="Logistics & Transport">
+            <option value="Operations">
+            <option value="Yard & Warehouse">
+            <option value="Sales">
+            <option value="Finance">
+            <option value="HR">
+            <option value="IT">
+            <option value="Executive">
+          </datalist>
+        </div>
+        <div class="field">
+          <label for="f-cc">Cost centre</label>
+          <input id="f-cc" type="text" placeholder="Cost centre code">
+        </div>
+
+        <div class="field full">
+          <label>Use type</label>
+          <div class="use-toggle">
+            <label><input type="radio" name="use" value="Business" checked> Business use</label>
+            <label><input type="radio" name="use" value="Private"> Private use</label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="f-pickup-date">Pick up date</label>
+          <input id="f-pickup-date" type="date">
+        </div>
+        <div class="field">
+          <label for="f-pickup-time">Pick up time</label>
+          <input id="f-pickup-time" type="time">
+        </div>
+
+        <div class="field">
+          <label for="f-return-date">Return date</label>
+          <input id="f-return-date" type="date">
+        </div>
+        <div class="field">
+          <label for="f-return-time">Return time</label>
+          <input id="f-return-time" type="time">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="cancelModal">Cancel</button>
+      <button class="btn-primary" id="submitBooking">Confirm booking</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayProfile">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-head">
+      <h2 id="profileTitle">Your profile</h2>
+      <button class="modal-close" id="closeProfile">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="profileError"></div>
+      <div class="form-grid" style="grid-template-columns:1fr;">
+        <div class="field">
+          <label for="pr-name">Full name</label>
+          <input id="pr-name" type="text" placeholder="Full name">
+        </div>
+        <div class="field">
+          <label for="pr-license">Driver's licence #</label>
+          <input id="pr-license" type="text" placeholder="Licence number">
+        </div>
+        <div class="field">
+          <label for="pr-email">Email</label>
+          <input id="pr-email" type="email" readonly>
+        </div>
+      </div>
+      <div class="data-note" id="profileNote">Your bookings, trip logs and incident reports are linked to this profile.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="cancelProfile">Cancel</button>
+      <button class="btn-primary" id="submitProfile">Save profile</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayPassword">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-head">
+      <h2>Change password</h2>
+      <button class="modal-close" id="closePassword">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="passwordError"></div>
+      <div class="data-note" id="passwordOk" style="display:none;color:var(--green);margin:0 0 12px;">Password changed.</div>
+      <div class="form-grid" style="grid-template-columns:1fr;">
+        <div class="field">
+          <label for="pw-current">Current password</label>
+          <input id="pw-current" type="password" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="pw-new">New password (8+ characters)</label>
+          <input id="pw-new" type="password" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label for="pw-new2">Confirm new password</label>
+          <input id="pw-new2" type="password" autocomplete="new-password">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="cancelPassword">Close</button>
+      <button class="btn-primary" id="submitPassword">Change password</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayDriverHistory">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-head">
+      <h2 id="driverHistoryName">Trip history</h2>
+      <button class="modal-close" id="closeDriverHistory">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="board-scroll">
+        <table class="upcoming">
+          <thead>
+            <tr>
+              <th>Vehicle</th><th>Status</th><th>Scheduled</th><th>Actual</th><th>Km</th><th>Fuel</th><th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="driverHistoryBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="closeDriverHistory2">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayIncidentDetail">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-head">
+      <h2>Incident report</h2>
+      <button class="modal-close" id="closeIncidentDetail">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="incidentDetailBody"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="closeIncidentDetail2">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayVehicle">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <h2 id="vehicleModalTitle">Add vehicle</h2>
+      <button class="modal-close" id="closeVehicle">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="vehicleError"></div>
+      <div class="form-grid" style="grid-template-columns:1fr;">
+        <div class="field">
+          <label for="v-rego">Registration</label>
+          <input id="v-rego" type="text" placeholder="e.g. NST-06">
+        </div>
+        <div class="field">
+          <label for="v-model">Vehicle description</label>
+          <input id="v-model" type="text" placeholder="e.g. Toyota HiLux SR5, ute, 5 seats">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-danger" id="archiveVehicleBtn" style="display:none;margin-right:auto;">Archive</button>
+      <button class="btn-ghost" id="cancelVehicle">Cancel</button>
+      <button class="btn-primary" id="submitVehicle">Save vehicle</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayAdminProfile">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-head">
+      <h2 id="adminProfileModalTitle">Add admin profile</h2>
+      <button class="modal-close" id="closeAdminProfile">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="adminProfileError"></div>
+      <div class="form-grid" style="grid-template-columns:1fr;">
+        <div class="field">
+          <label for="ap-name">Name</label>
+          <input id="ap-name" type="text" placeholder="e.g. Matthew">
+        </div>
+        <div class="field">
+          <label for="ap-email">Email</label>
+          <input id="ap-email" type="email" placeholder="name@neumannsteel.com.au">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-danger" id="removeAdminProfileBtn" style="display:none;margin-right:auto;">Remove</button>
+      <button class="btn-ghost" id="cancelAdminProfile">Cancel</button>
+      <button class="btn-primary" id="submitAdminProfile">Save profile</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayAllocation">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <h2 id="allocationModalTitle">Add allocation</h2>
+      <button class="modal-close" id="closeAllocation">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="allocationError"></div>
+      <div class="form-grid" style="grid-template-columns:1fr;">
+        <div class="field">
+          <label for="al-name">Driver name</label>
+          <input id="al-name" type="text" placeholder="Full name">
+        </div>
+        <div class="field">
+          <label for="al-email">Driver email (their sign-in)</label>
+          <input id="al-email" type="email" placeholder="name@neumannsteel.com.au">
+        </div>
+        <div class="field">
+          <label for="al-vehicle">Vehicle</label>
+          <select id="al-vehicle"></select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-danger" id="removeAllocationBtn" style="display:none;margin-right:auto;">Remove</button>
+      <button class="btn-ghost" id="cancelAllocation">Cancel</button>
+      <button class="btn-primary" id="submitAllocation">Save allocation</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayCompanyVehicle">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <h2 id="companyVehicleModalTitle">Add company vehicle</h2>
+      <button class="modal-close" id="closeCompanyVehicle">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="companyVehicleError"></div>
+      <div class="form-grid" style="grid-template-columns:1fr;">
+        <div class="field">
+          <label for="cv-rego">Registration</label>
+          <input id="cv-rego" type="text" placeholder="e.g. NST-12">
+        </div>
+        <div class="field">
+          <label for="cv-model">Vehicle description</label>
+          <input id="cv-model" type="text" placeholder="e.g. Toyota Camry Ascent, sedan, 5 seats">
+        </div>
+        <div class="field">
+          <label for="cv-due-service">Due service (km) — optional</label>
+          <input id="cv-due-service" type="number" min="0" step="1" placeholder="e.g. 70000">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-danger" id="removeCompanyVehicleBtn" style="display:none;margin-right:auto;">Remove</button>
+      <button class="btn-ghost" id="cancelCompanyVehicle">Cancel</button>
+      <button class="btn-primary" id="submitCompanyVehicle">Save vehicle</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayPolicy">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-head">
+      <h2>Company vehicle use policy</h2>
+      <button class="modal-close" id="closePolicy">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13.5px;line-height:1.5;margin:0 0 14px;">
+        Since this is your first time logging in, please read the Policy for Company Vehicle Use before continuing.
+      </p>
+      <!-- href and text are set dynamically by updatePolicyLinkHref() based on the admin-uploaded PDF -->
+      <p style="margin:0 0 4px;"><a href="#" target="_blank" rel="noopener" class="policy-link" id="policyLink">Read the Policy for Company Vehicle Use ↗</a></p>
+      <label class="policy-check">
+        <input type="checkbox" id="policy-ack-check">
+        <span>I confirm I have read and understood the Policy for Company Vehicle Use.</span>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="cancelPolicy">Cancel</button>
+      <button class="btn-primary" id="confirmPolicy" disabled>Continue</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayTrip">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="tripModalTitle">Start trip</h2>
+      <button class="modal-close" id="closeTrip">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="tripError"></div>
+      <div class="data-note" id="tripAlreadyStarted" style="display:none;margin:0 0 16px;"></div>
+      <div class="form-grid" id="tripStartFields">
+        <div class="field">
+          <label for="t-start-date">Actual start date</label>
+          <input id="t-start-date" type="date">
+        </div>
+        <div class="field">
+          <label for="t-start-time">Actual start time</label>
+          <input id="t-start-time" type="time">
+        </div>
+        <div class="field">
+          <label for="t-start-km">Odometer at start (km)</label>
+          <input id="t-start-km" type="number" min="0" step="1" placeholder="e.g. 48210">
+        </div>
+        <div class="field full">
+          <label for="t-start-notes">Notes / existing damage at pickup</label>
+          <textarea id="t-start-notes" placeholder="e.g. small scratch on rear bumper, noted before departure"></textarea>
+        </div>
+      </div>
+      <div class="form-grid" id="tripFinishFields">
+        <div class="field">
+          <label for="t-finish-date">Actual finish date</label>
+          <input id="t-finish-date" type="date">
+        </div>
+        <div class="field">
+          <label for="t-finish-time">Actual finish time</label>
+          <input id="t-finish-time" type="time">
+        </div>
+        <div class="field">
+          <label for="t-finish-km">Odometer at finish (km)</label>
+          <input id="t-finish-km" type="number" min="0" step="1" placeholder="e.g. 48340">
+        </div>
+        <div class="field full">
+          <label for="t-finish-notes">Notes / damage on return</label>
+          <textarea id="t-finish-notes" placeholder="e.g. new scuff on front bumper, chip in windscreen"></textarea>
+        </div>
+        <div class="field full">
+          <label>Returned with at least ¼ tank of fuel?</label>
+          <div class="use-toggle">
+            <label><input type="radio" name="fuelOk" value="yes" id="t-fuel-yes"> Yes</label>
+            <label><input type="radio" name="fuelOk" value="no" id="t-fuel-no"> No — needs refuelling</label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="cancelTrip">Cancel</button>
+      <button class="btn-primary" id="submitTrip">Save trip log</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

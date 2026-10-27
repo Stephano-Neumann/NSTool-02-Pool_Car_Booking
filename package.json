@@ -1,0 +1,19 @@
+{
+  "name": "nst-car-booking",
+  "version": "1.0.0",
+  "description": "Neumann Steel company car booking, company car checks and incident reporting",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js",
+    "user:add": "node scripts/add-user.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "express": "^5.1.0",
+    "helmet": "^8.0.0"
+  }
+}

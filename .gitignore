@@ -1,0 +1,12 @@
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+public/body.fragment.html
+
+# Original single-file tool: contains the old hard-coded admin passcode and recovery code
+resources/

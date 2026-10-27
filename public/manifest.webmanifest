@@ -1,0 +1,20 @@
+{
+    "name":  "Neumann Steel Company Car Booking",
+    "short_name":  "NST Car Booking",
+    "start_url":  "/",
+    "display":  "standalone",
+    "background_color":  "#0E1B31",
+    "theme_color":  "#F80000",
+    "icons":  [
+                  {
+                      "type":  "image/png",
+                      "sizes":  "192x192",
+                      "src":  "/assets/icon-192.png"
+                  },
+                  {
+                      "type":  "image/png",
+                      "sizes":  "512x512",
+                      "src":  "/assets/icon-512.png"
+                  }
+              ]
+}

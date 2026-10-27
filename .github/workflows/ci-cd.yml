@@ -1,0 +1,102 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to Azure — no stored credentials
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: nst-car-booking
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: API tests
+        run: docker build --target test -t nst-car-booking:test .
+
+      - name: Build release image
+        run: docker build --build-arg APP_VERSION=${{ github.sha }} -t nst-car-booking:ci .
+
+      - name: Smoke test the container
+        run: |
+          docker run -d --name smoke -p 8080:8080 \
+            -e APP_ENV=local -e AUTH_MODE=local -e SEED_TEST_DATA=true \
+            -v smoke-data:/data nst-car-booking:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:8080/health | grep -q '"status":"ok"'; then echo "healthy"; exit 0; fi
+            sleep 2
+          done
+          docker logs smoke
+          exit 1
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+      APP_ENV: ${{ vars.APP_ENV || 'staging' }}
+      AUTH_MODE: ${{ vars.AUTH_MODE || 'local' }}
+      SEED_TEST_DATA: ${{ vars.SEED_TEST_DATA || 'true' }}
+      ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS || '' }}
+      ALLOWED_IP_RANGES: ${{ vars.ALLOWED_IP_RANGES || '[]' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Provision infrastructure (registry, storage, environment)
+        id: infra
+        run: |
+          out=$(az deployment group create -g "$RG" -f infra/main.bicep \
+            -p deployApp=false appEnv="$APP_ENV" --query properties.outputs -o json)
+          echo "acr=$(echo "$out" | jq -r .acrName.value)" >> "$GITHUB_OUTPUT"
+          echo "server=$(echo "$out" | jq -r .acrLoginServer.value)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image in Azure Container Registry
+        run: |
+          az acr build -r "${{ steps.infra.outputs.acr }}" \
+            -t "$IMAGE_NAME:${{ github.sha }}" \
+            --build-arg APP_VERSION=${{ github.sha }} .
+
+      - name: Deploy new revision
+        id: deploy
+        run: |
+          out=$(az deployment group create -g "$RG" -f infra/main.bicep \
+            -p image="${{ steps.infra.outputs.server }}/$IMAGE_NAME:${{ github.sha }}" \
+               appEnv="$APP_ENV" authMode="$AUTH_MODE" seedTestData="$SEED_TEST_DATA" \
+               adminEmails="$ADMIN_EMAILS" allowedIpRanges="$ALLOWED_IP_RANGES" \
+               appVersion="${{ github.sha }}" dataApiKey="${{ secrets.DATA_API_KEY }}" \
+            --query properties.outputs -o json)
+          echo "fqdn=$(echo "$out" | jq -r .appFqdn.value)" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test /health on the new revision
+        run: |
+          url="https://${{ steps.deploy.outputs.fqdn }}/health"
+          echo "Checking $url"
+          for i in $(seq 1 30); do
+            body=$(curl -fsS --max-time 10 "$url" || true)
+            if echo "$body" | grep -q '"status":"ok"' && echo "$body" | grep -q "${{ github.sha }}"; then
+              echo "Deployed: $body"; exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check failed. Last response: $body"
+          echo "Roll back by activating the previous revision: az containerapp revision list -g $RG -n ca-*"
+          exit 1
