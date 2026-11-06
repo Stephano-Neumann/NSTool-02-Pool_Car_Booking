@@ -6,10 +6,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write # OIDC login to Azure — no stored credentials
-
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
@@ -20,6 +16,8 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +43,9 @@ jobs:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC login to Azure, no stored credentials
     env:
       RG: ${{ vars.AZURE_RESOURCE_GROUP }}
       APP_ENV: ${{ vars.APP_ENV || 'staging' }}
@@ -86,17 +87,25 @@ jobs:
             --query properties.outputs -o json)
           echo "fqdn=$(echo "$out" | jq -r .appFqdn.value)" >> "$GITHUB_OUTPUT"
 
-      - name: Smoke test /health on the new revision
+      - name: Verify the new revision is healthy
         run: |
-          url="https://${{ steps.deploy.outputs.fqdn }}/health"
-          echo "Checking $url"
+          APP="ca-nstcarbooking"
+          # Checked through the Azure control plane, so it works when ALLOWED_IP_RANGES blocks GitHub runners.
           for i in $(seq 1 30); do
-            body=$(curl -fsS --max-time 10 "$url" || true)
-            if echo "$body" | grep -q '"status":"ok"' && echo "$body" | grep -q "${{ github.sha }}"; then
-              echo "Deployed: $body"; exit 0
+            rev=$(az containerapp revision list -g "$RG" -n "$APP" -o json \
+              | jq -c --arg sha "${{ github.sha }}" '[.[] | select(.properties.active == true and (.properties.template.containers[0].image | contains($sha)))][0] // empty')
+            if [ -n "$rev" ]; then
+              name=$(echo "$rev" | jq -r .name)
+              health=$(echo "$rev" | jq -r .properties.healthState)
+              state=$(echo "$rev" | jq -r .properties.runningState)
+              echo "Revision $name: health=$health running=$state"
+              if [ "$health" = "Healthy" ] && [ "$state" = "Running" ]; then exit 0; fi
+            else
+              echo "No active revision with image tag ${{ github.sha }} yet"
             fi
             sleep 10
           done
-          echo "Health check failed. Last response: $body"
-          echo "Roll back by activating the previous revision: az containerapp revision list -g $RG -n ca-*"
+          echo "Revision did not become healthy in time. Revisions:"
+          az containerapp revision list -g "$RG" -n "$APP" -o table
+          echo "Roll back by activating the previous revision: az containerapp revision activate -g $RG -n $APP --revision <name>"
           exit 1

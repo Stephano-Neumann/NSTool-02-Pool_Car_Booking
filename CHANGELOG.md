@@ -18,3 +18,14 @@ First platform version. Re-platformed from the single-file `pool-car-booking (6)
 - Data Export API (`/api/export/v1`) for loading all platform data into Fabric: manifest, paged and incremental datasets, deletion tombstones, API-key auth.
 - Migration 002: `updated_at` change tracking and `deleted_records`.
 - Fabric ingestion notebook and docs; Data Export API added to the platform standard (section 14).
+
+## 1.1.1
+
+Pre-deployment fixes from the Azure deployment guide.
+
+- Deploy check now inspects the new Container App revision with the Azure CLI instead of calling `/health`, so it works when `ALLOWED_IP_RANGES` blocks GitHub runners.
+- Workflow permissions are per job; only the deploy job gets `id-token: write`.
+- `docker-compose.yml` publishes the port on `127.0.0.1` only.
+- Export routes are mounted before user lookup and the CSRF check; a forged `X-MS-CLIENT-PRINCIPAL` header on `/api/export/*` cannot create or read a user (new test).
+- Original single-file tool removed from the repository; `resources/` is git-ignored.
+- Added `.github/dependabot.yml` (npm, GitHub Actions, Docker; weekly).

@@ -48,8 +48,11 @@ export function createApp(db) {
     }
   });
 
+  // Data Export API: authenticated by API key only. Mounted before attachUser and the CSRF check so a
+  // forged sign-in header on /api/export/* can never create or read a user.
+  app.use('/api', exportRoutes(db));
   app.use('/api', express.json({ limit: '100kb' }), attachUser(db), requireCsrfHeader);
-  app.use('/api', authRoutes(db), fleetRoutes(db), adminRoutes(db), companyCarRoutes(db), incidentRoutes(db), exportRoutes(db));
+  app.use('/api', authRoutes(db), fleetRoutes(db), adminRoutes(db), companyCarRoutes(db), incidentRoutes(db));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
   app.use(express.static(publicDir, {
