@@ -12,7 +12,7 @@
     "user:add": "node scripts/add-user.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^13.0.3",
     "express": "^5.1.0",
     "helmet": "^8.0.0"
   }
