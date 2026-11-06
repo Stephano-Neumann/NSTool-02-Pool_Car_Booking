@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
-FROM node:22-bookworm-slim AS deps
+FROM node:25-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # `docker build --target test .` runs the API tests; CI does this before building the release image.
-FROM node:22-bookworm-slim AS test
+FROM node:25-bookworm-slim AS test
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
@@ -14,7 +14,7 @@ COPY public ./public
 COPY test ./test
 RUN node --test test/*.test.js
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 ARG APP_VERSION=dev
 ENV NODE_ENV=production \
     PORT=8080 \
