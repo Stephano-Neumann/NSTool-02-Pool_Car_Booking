@@ -99,7 +99,7 @@ jobs:
               health=$(echo "$rev" | jq -r .properties.healthState)
               state=$(echo "$rev" | jq -r .properties.runningState)
               echo "Revision $name: health=$health running=$state"
-              if [ "$health" = "Healthy" ] && [ "$state" = "Running" ]; then exit 0; fi
+              if [ "$health" = "Healthy" ] && [[ "$state" == Running* ]]; then exit 0; fi
             else
               echo "No active revision with image tag ${{ github.sha }} yet"
             fi
