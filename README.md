@@ -59,14 +59,14 @@ The app exposes a read-only Data Export API (`/api/export/v1`) so all platform d
 ## Other commands
 
 ```bash
-docker build --target test .                                   # API tests (24)
+docker build --target test .                                   # API tests (25)
 docker compose exec app node scripts/add-user.js a@b.com "Name" admin 'a-long-password'
 curl localhost:8080/health
 ```
 
 ## Deploy to Azure Container Apps
 
-Pushing to `main` runs [ci-cd.yml](.github/workflows/ci-cd.yml): tests, then provision ([infra/main.bicep](infra/main.bicep)), build the image in Azure Container Registry, deploy a new revision, and smoke-test `/health`.
+Pushing to `main` runs [ci-cd.yml](.github/workflows/ci-cd.yml): tests, then provision ([infra/main.bicep](infra/main.bicep)), build the image in Azure Container Registry, deploy a new revision, and check that the new revision is Healthy and Running with the Azure CLI (a plain `/health` call would fail when `ALLOWED_IP_RANGES` is set).
 
 One-time setup (steps 2 and 3 need Entra and subscription permissions; if you do not have them, ask IT):
 

@@ -318,6 +318,15 @@ test('export: needs the API key; a signed-in admin session is not enough', async
   assert.equal((await exp('/manifest', { 'X-Api-Key': 'test-export-key' })).status, 200);
 });
 
+test('export: a forged gateway sign-in header creates no user and the key is still required', async () => {
+  const email = 'forged.export@neumannsteel.test';
+  const principal = Buffer.from(JSON.stringify({ auth_typ: 'aad', claims: [{ typ: 'preferred_username', val: email }, { typ: 'name', val: 'Forged' }] })).toString('base64');
+  const forged = { 'X-MS-CLIENT-PRINCIPAL': principal };
+  assert.equal((await exp('/manifest', forged)).status, 401);
+  assert.equal((await exp('/manifest', { ...forged, ...KEY })).status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users WHERE email = ?').get(email).n, 0);
+});
+
 test('export: disabled entirely when no key is configured', async () => {
   const saved = config.dataApiKey;
   config.dataApiKey = '';
