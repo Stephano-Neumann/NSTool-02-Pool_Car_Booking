@@ -89,9 +89,9 @@ One-time setup (steps 2 and 3 need Entra and subscription permissions; if you do
 ## Known limits
 
 - **SQLite, one replica.** The template pins `minReplicas = maxReplicas = 1` and mounts the database on Azure Files with `nobrl` and the rollback journal, because SMB does not support SQLite locking or WAL reliably. That is fine for this tool's size. Do not raise the replica count. If the tool outgrows this, move to Azure SQL or PostgreSQL (standard, section 7).
-- **Backups are not configured by the template.** Turn on Azure Backup (or scheduled share snapshots) for the storage account's `app-data` share and try a restore before relying on it.
+- **Backups.** The app-data share is protected by Azure Backup (vault rsv-nstcarbooking, daily at 7:30 PM UTC, kept 30 days). A restore of app.db from the 9 Nov 2026 recovery point into a separate share was tested and worked. Repeat a restore test after any change to the backup setup. The backup setup lives in Azure, not in the Bicep template.
 - **Booking emails** are sent through a webhook (Power Automate) as in the original tool. Without one they are logged only. A Graph `sendMail` integration is the longer-term route.
-- **Not yet verified:** the Azure deployment (Bicep, workflow and Entra setup) has not been run against a real subscription. Expect to fix small things on the first run. Local Docker, the API tests and the browser walkthrough have been run.
+- **Verified on staging (9 Nov 2026):** the Azure deployment (Bicep, workflow, managed identity, Azure Files mount) runs, and bookings survive a revision restart, a stop and start, and a new revision deployed from a merged pull request. Production sign-in with Entra is not yet set up.
 
 ## Differences from the original single-file tool
 
