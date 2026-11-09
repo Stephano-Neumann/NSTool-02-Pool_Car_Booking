@@ -29,3 +29,4 @@ Pre-deployment fixes from the Azure deployment guide.
 - Export routes are mounted before user lookup and the CSRF check; a forged `X-MS-CLIENT-PRINCIPAL` header on `/api/export/*` cannot create or read a user (new test).
 - Original single-file tool removed from the repository; `resources/` is git-ignored.
 - Added `.github/dependabot.yml` (npm, GitHub Actions, Docker; weekly).
+- Persistence test on staging: bookings survive a restart, a stop and start, and a new revision deployed from a merged pull request.
