@@ -39,7 +39,7 @@ const EMAIL_CLAIMS = [
 ];
 
 // Decodes the X-MS-CLIENT-PRINCIPAL header the gateway sets after Entra sign-in.
-// Only trustworthy when the platform forces authentication in front of the app.
+// Trustworthy only because the platform overwrites any client-sent copy of this header.
 export function readGatewayPrincipal(req) {
   const raw = req.headers['x-ms-client-principal'];
   if (!raw) return null;
@@ -96,7 +96,14 @@ export function attachUser(db) {
       const principal = readGatewayPrincipal(req);
       if (principal && emailDomainAllowed(principal.email)) {
         const user = provisionGatewayUser(db, principal);
-        if (user.active) req.user = user;
+        if (user.active) {
+          req.realRole = user.role;
+          // Admins act as admins only from the /nsadmin page, which sends X-NST-Admin-View. Everywhere else
+          // an admin is treated as a normal user, so one account can test both views. The header can only
+          // ever lower or keep the role the sign-in gives; it can never raise it.
+          const adminView = req.headers['x-nst-admin-view'] === '1';
+          req.user = user.role === 'admin' && !adminView ? { ...user, role: 'driver' } : user;
+        }
       }
       return next();
     }
