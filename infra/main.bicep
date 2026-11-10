@@ -32,6 +32,9 @@ param deployApp bool = true
 @description('Gateway mode: comma-separated emails that are always admins.')
 param adminEmails string = ''
 
+@description('Gateway mode: comma-separated email domains allowed to sign in, e.g. neumann.com.au. Empty = any.')
+param allowedEmailDomains string = ''
+
 @description('Public IPv4 ranges allowed to reach the app, e.g. ["203.0.113.0/24"]. Empty = open to the internet.')
 param allowedIpRanges array = []
 
@@ -173,6 +176,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = if (deployApp) {
             { name: 'ALLOW_LOCAL_AUTH', value: authMode == 'local' && appEnv != 'production' ? 'true' : 'false' }
             { name: 'SEED_TEST_DATA', value: string(effectiveSeed) }
             { name: 'ADMIN_EMAILS', value: adminEmails }
+            { name: 'ALLOWED_EMAIL_DOMAINS', value: allowedEmailDomains }
             { name: 'APP_VERSION', value: appVersion }
             { name: 'PLATFORM_NAME', value: appName }
 
