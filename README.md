@@ -48,6 +48,7 @@ All settings are environment variables. See [.env.example](.env.example).
 | `SEED_TEST_DATA` | `false` | Test logins and sample data. The app refuses to start with this on in production |
 | `DATA_DIR` | `./data` (`/data` in the image) | Where `app.db` lives. Mount a persistent volume here |
 | `SQLITE_JOURNAL_MODE` | `WAL` | Use `DELETE` when `DATA_DIR` is an Azure Files share |
+| `ALLOWED_EMAIL_DOMAINS` | empty | Gateway mode: comma-separated email domains allowed to sign in (e.g. `neumann.com.au`); anyone else is treated as signed out and no user is created. Empty = no restriction |
 | `ADMIN_ROLE` / `ADMIN_EMAILS` | `Admin` / empty | Gateway mode: Entra app role that grants admin, and emails that are always admin |
 | `ALERT_WEBHOOK_URL` | empty | Power Automate HTTP trigger for booking alert emails (admins can also set it in the app) |
 | `DATA_API_KEY` / `PLATFORM_NAME` | empty / `car-booking` | Key for the read-only Data Export API used by Fabric (empty = disabled), and the name used in lake tables |
@@ -74,7 +75,7 @@ One-time setup (steps 2 and 3 need Entra and subscription permissions; if you do
 2. Create an Entra app registration with a federated credential for this repo's `main` branch (GitHub OIDC), so no secret is stored.
 3. Give that identity **Contributor** and **Role Based Access Control Administrator** on the resource group (the template grants the app permission to pull from the registry).
 4. In GitHub, add repository secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and repository variable `AZURE_RESOURCE_GROUP`.
-5. Optional variables: `APP_ENV` (`staging` default), `AUTH_MODE`, `SEED_TEST_DATA`, `ADMIN_EMAILS`, `ALLOWED_IP_RANGES` (e.g. `["203.0.113.0/24"]`).
+5. Optional variables: `APP_ENV` (`staging` default), `AUTH_MODE`, `SEED_TEST_DATA`, `ADMIN_EMAILS`, `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_IP_RANGES` (e.g. `["203.0.113.0/24"]`).
 6. Push to `main`. The deployed URL is `https://<fqdn>/health` in the workflow log, or `az containerapp show -g <rg> -n ca-nstcarbooking --query properties.configuration.ingress.fqdn`.
 
 **Staging has test logins with a shared, known password. Set `ALLOWED_IP_RANGES` to your office ranges, or do not put the URL anywhere public, and keep real data out of it.**

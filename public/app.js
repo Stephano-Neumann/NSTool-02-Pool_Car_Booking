@@ -131,8 +131,14 @@ function showLanding() {
 
 // ---------- sign in / sign out ----------
 
+const ON_ADMIN_PAGE = window.location.pathname.replace(/\/+$/, '').toLowerCase() === '/nsadmin';
+
 function showLogin(message) {
   session = null;
+  // Password sign-in is only offered on /nsadmin (local auth mode); the main page shows no form.
+  const showForm = authConfig.mode === 'local' && ON_ADMIN_PAGE;
+  $('loginForm').style.display = showForm ? '' : 'none';
+  if (!showForm && authConfig.mode === 'local' && !message) message = 'Sign in is not available on this page.';
   $('l-password').value = '';
   if (message) showError('loginError', message); else clearError('loginError');
   showScreen('loginScreen');
@@ -143,7 +149,7 @@ function sessionExpired() {
 
 function renderTestLogins() {
   const box = $('testLoginsBox');
-  const t = authConfig.testLogins;
+  const t = ON_ADMIN_PAGE ? authConfig.testLogins : null;
   if (!t) { box.style.display = 'none'; return; }
   box.style.display = 'block';
   box.innerHTML = '<h3>Test logins</h3><p>Click one to sign in. Password for all: <b>' + escapeHtml(t.password) + '</b></p>' +
@@ -1474,7 +1480,6 @@ async function init() {
     await afterSignIn(user);
   } catch (err) {
     if (err.status === 401 && authConfig.mode === 'gateway') {
-      $('loginForm').style.display = 'none';
       showLogin('Sign in with your Neumann account to continue.');
       $('loginError').insertAdjacentHTML('afterend', '<a class="btn-primary landing-btn" style="text-align:center;text-decoration:none;" href="/.auth/login/aad">Sign in with Microsoft</a>');
     } else if (err.status === 401) {

@@ -11,6 +11,7 @@ export const config = {
   allowLocalAuthInProd: flag(env.ALLOW_LOCAL_AUTH),
   seedTestData: flag(env.SEED_TEST_DATA),  // test logins + sample data; refused in production
   adminEmails: list(env.ADMIN_EMAILS),     // gateway mode: these emails are always admins
+  allowedEmailDomains: list(env.ALLOWED_EMAIL_DOMAINS), // gateway mode: only these email domains may sign in (empty = any)
   adminRole: env.ADMIN_ROLE || 'Admin',    // gateway mode: Entra app role that grants admin
   sqliteJournalMode: (env.SQLITE_JOURNAL_MODE || 'WAL').toUpperCase(), // use DELETE on Azure Files (SMB)
   sessionHours: Number(env.SESSION_HOURS || 12),

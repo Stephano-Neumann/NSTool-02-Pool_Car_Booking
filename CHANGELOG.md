@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Separate admin page `/nsadmin`. Local mode: it hosts the email + password sign-in (the main page shows no form). Gateway mode: only signed-in admins (Entra `Admin` app role or `ADMIN_EMAILS`) are served the app there; everyone else gets a 403 no-access page.
+- Gateway mode: optional `ALLOWED_EMAIL_DOMAINS` allowlist (defence in depth on top of Entra "Assignment required"). Out-of-domain sign-ins are rejected and create no user. New test; wired through `infra/main.bicep` and the pipeline variable `ALLOWED_EMAIL_DOMAINS`.
+
 ## 1.0.0
 
 First platform version. Re-platformed from the single-file `pool-car-booking (6).html`.
