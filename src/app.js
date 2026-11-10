@@ -55,6 +55,20 @@ export function createApp(db) {
   app.use('/api', authRoutes(db), fleetRoutes(db), adminRoutes(db), companyCarRoutes(db), incidentRoutes(db));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
+  // Separate admin page. Local mode: the password sign-in page (public/app.js shows the form only on this path).
+  // Gateway mode: only signed-in admins are served the app here; everyone else gets a no-access page.
+  app.get(['/nsadmin', '/nsadmin/'], attachUser(db), (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (config.authMode === 'gateway' && req.user?.role !== 'admin') {
+      return res.status(403).type('html').send(
+        '<!doctype html><meta charset="utf-8"><title>No access</title>' +
+        '<body style="font-family:sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
+        '<h1>No access</h1><p>This page is for administrators. If you need admin rights, ask your administrator.</p>' +
+        '<p><a href="/">Back to the company car booking</a></p></body>');
+    }
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+
   app.use(express.static(publicDir, {
     setHeaders: (res, file) => {
       if (file.endsWith('.html') || file.endsWith('.js') || file.endsWith('.css')) res.setHeader('Cache-Control', 'no-cache');
