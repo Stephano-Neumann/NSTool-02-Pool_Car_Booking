@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Separate admin page `/nsadmin`. Local mode: it hosts the email + password sign-in (the main page shows no form). Gateway mode: only signed-in admins (Entra `Admin` app role or `ADMIN_EMAILS`) are served the app there; everyone else gets a 403 no-access page.
+- Separate admin page `/nsadmin`. Gateway mode: signed-out visitors get the sign-in page, signed-in non-admins get a 403 no-access page, and admins act as admins only on this page (the app sends X-NST-Admin-View); on the main URL an admin is a normal user. Local mode: it hosts the email + password sign-in and the main page shows no form.
 - Gateway mode: optional `ALLOWED_EMAIL_DOMAINS` allowlist (defence in depth on top of Entra "Assignment required"). Out-of-domain sign-ins are rejected and create no user. New test; wired through `infra/main.bicep` and the pipeline variable `ALLOWED_EMAIL_DOMAINS`.
 
 ## 1.0.0
