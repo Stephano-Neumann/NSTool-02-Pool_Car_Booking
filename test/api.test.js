@@ -287,6 +287,57 @@ test('gateway mode trusts the Easy Auth principal and maps the Entra role', asyn
   }
 });
 
+test('gateway mode rejects emails outside ALLOWED_EMAIL_DOMAINS', async () => {
+  config.authMode = 'gateway';
+  config.allowedEmailDomains = ['neumann.com.au'];
+  try {
+    const principal = (email) => Buffer.from(JSON.stringify({
+      auth_typ: 'aad', name_typ: 'name', role_typ: 'roles',
+      claims: [{ typ: 'preferred_username', val: email }, { typ: 'name', val: 'Dom Ain' }],
+    })).toString('base64');
+    const c = client();
+    const outside = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('someone@gmail.com') });
+    assert.equal(outside.status, 401);
+    const lookalike = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('x@neumann.com.au.evil.com') });
+    assert.equal(lookalike.status, 401);
+    const inside = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('Dom.Ain@Neumann.com.au') });
+    assert.equal(inside.status, 200);
+    assert.equal(inside.body.email, 'dom.ain@neumann.com.au');
+  } finally {
+    config.authMode = 'local';
+    config.allowedEmailDomains = [];
+  }
+});
+
+test('the password sign-in page is served at /nsadmin only', async () => {
+  for (const path of ['/nsadmin', '/nsadmin/']) {
+    const r = await client().get(path);
+    assert.equal(r.status, 200);
+    assert.match(r.body, /id="loginForm"/);
+  }
+  const app = await (await fetch(base + '/app.js')).text();
+  assert.match(app, /ON_ADMIN_PAGE/, 'the client only shows the password form on /nsadmin');
+});
+
+test('gateway mode serves /nsadmin to admins only', async () => {
+  config.authMode = 'gateway';
+  try {
+    const principal = (email, roles) => Buffer.from(JSON.stringify({
+      auth_typ: 'aad', name_typ: 'name', role_typ: 'roles',
+      claims: [{ typ: 'preferred_username', val: email }, { typ: 'name', val: 'Page Test' },
+        ...roles.map(r => ({ typ: 'roles', val: r }))],
+    })).toString('base64');
+    const c = client();
+    assert.equal((await c.raw('GET', '/nsadmin')).status, 403, 'no principal');
+    assert.equal((await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.driver@neumann.com.au', []) })).status, 403, 'driver');
+    const admin = await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.admin@neumann.com.au', ['Admin']) });
+    assert.equal(admin.status, 200);
+    assert.match(admin.body, /id="loginForm"/);
+  } finally {
+    config.authMode = 'local';
+  }
+});
+
 test('unsafe configuration is refused at startup', () => {
   const saved = { ...config };
   try {
