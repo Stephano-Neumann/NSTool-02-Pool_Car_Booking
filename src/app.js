@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
-import { attachUser, requireCsrfHeader } from './auth.js';
+import { attachUser, requireCsrfHeader, readGatewayPrincipal } from './auth.js';
 import { authRoutes } from './routes/auth.js';
 import { fleetRoutes } from './routes/fleet.js';
 import { adminRoutes } from './routes/admin.js';
@@ -56,10 +56,12 @@ export function createApp(db) {
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
   // Separate admin page. Local mode: the password sign-in page (public/app.js shows the form only on this path).
-  // Gateway mode: only signed-in admins are served the app here; everyone else gets a no-access page.
+  // Gateway mode: signed-out visitors get the sign-in page; signed-in non-admins get a no-access page.
   app.get(['/nsadmin', '/nsadmin/'], attachUser(db), (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (config.authMode === 'gateway' && req.user?.role !== 'admin') {
+    // Signed out: serve the app so it shows the sign-in choice. Signed in without admin rights: no access.
+    const signedIn = !!readGatewayPrincipal(req);
+    if (config.authMode === 'gateway' && signedIn && req.realRole !== 'admin') {
       return res.status(403).type('html').send(
         '<!doctype html><meta charset="utf-8"><title>No access</title>' +
         '<body style="font-family:sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
