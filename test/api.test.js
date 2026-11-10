@@ -277,8 +277,13 @@ test('gateway mode trusts the Easy Auth principal and maps the Entra role', asyn
     const driver = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal([]) });
     assert.equal(driver.body.role, 'driver');
     assert.equal(driver.body.email, 'gate.way@neumann.com.au');
-    const admin = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal(['Admin']) });
+    const asUser = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal(['Admin']) });
+    assert.equal(asUser.body.role, 'driver', 'an admin is a normal user outside the admin page');
+    assert.equal((await c.raw('GET', '/api/drivers', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal(['Admin']) })).status, 403);
+    const admin = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal(['Admin']), 'X-NST-Admin-View': '1' });
     assert.equal(admin.body.role, 'admin');
+    const sneaky = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal([]), 'X-NST-Admin-View': '1' });
+    assert.equal(sneaky.body.role, 'driver', 'the admin-view header never raises a normal user');
     assert.equal((await c.raw('GET', '/api/drivers', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal([]) })).status, 403);
     assert.equal((await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': 'garbage' })).status, 401);
     assert.equal((await client().login(E('admin'))).status, 404, 'password login is off in gateway mode');
@@ -319,7 +324,7 @@ test('the password sign-in page is served at /nsadmin only', async () => {
   assert.match(app, /ON_ADMIN_PAGE/, 'the client only shows the password form on /nsadmin');
 });
 
-test('gateway mode serves /nsadmin to admins only', async () => {
+test('gateway mode: /nsadmin shows signed-in non-admins no access', async () => {
   config.authMode = 'gateway';
   try {
     const principal = (email, roles) => Buffer.from(JSON.stringify({
@@ -328,7 +333,9 @@ test('gateway mode serves /nsadmin to admins only', async () => {
         ...roles.map(r => ({ typ: 'roles', val: r }))],
     })).toString('base64');
     const c = client();
-    assert.equal((await c.raw('GET', '/nsadmin')).status, 403, 'no principal');
+    const signedOut = await c.raw('GET', '/nsadmin');
+    assert.equal(signedOut.status, 200, 'signed out visitors get the sign-in page');
+    assert.match(signedOut.body, /id="loginForm"/);
     assert.equal((await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.driver@neumann.com.au', []) })).status, 403, 'driver');
     const admin = await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.admin@neumann.com.au', ['Admin']) });
     assert.equal(admin.status, 200);
