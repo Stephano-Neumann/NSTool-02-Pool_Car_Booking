@@ -9,10 +9,13 @@
 const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, '0');
 
+const ON_ADMIN_PAGE = window.location.pathname.replace(/\/+$/, '').toLowerCase() === '/nsadmin';
+
 // ---------- API ----------
 
 async function api(method, path, body) {
   const opts = { method, credentials: 'same-origin', headers: { 'X-Requested-By': 'nst-app' } };
+  if (ON_ADMIN_PAGE) opts.headers['X-NST-Admin-View'] = '1'; // admins act as admins only on /nsadmin
   if (body instanceof Blob) {
     opts.body = body;
     opts.headers['Content-Type'] = body.type;
@@ -131,8 +134,6 @@ function showLanding() {
 
 // ---------- sign in / sign out ----------
 
-const ON_ADMIN_PAGE = window.location.pathname.replace(/\/+$/, '').toLowerCase() === '/nsadmin';
-
 function showLogin(message) {
   session = null;
   // Password sign-in is only offered on /nsadmin (local auth mode); the main page shows no form.
@@ -141,7 +142,16 @@ function showLogin(message) {
   if (!showForm && authConfig.mode === 'local' && !message) message = 'Sign in is not available on this page.';
   $('l-password').value = '';
   if (message) showError('loginError', message); else clearError('loginError');
+  renderMicrosoftButton();
   showScreen('loginScreen');
+}
+// Gateway mode: the sign-in choice. One Microsoft sign-in covers both pages; which page you open decides
+// whether you act as a normal user (main page) or as an administrator (/nsadmin).
+function renderMicrosoftButton() {
+  if (authConfig.mode !== 'gateway' || $('msSignIn')) return;
+  const dest = ON_ADMIN_PAGE ? '/nsadmin' : '/';
+  const label = ON_ADMIN_PAGE ? 'Administrator sign in with Microsoft' : 'Sign in with Microsoft';
+  $('loginError').insertAdjacentHTML('afterend', '<a id="msSignIn" class="btn-primary landing-btn" style="text-align:center;text-decoration:none;" href="/.auth/login/aad?post_login_redirect_uri=' + dest + '">' + label + '</a>');
 }
 function sessionExpired() {
   if (session) showLogin('Your session has ended. Please sign in again.');
@@ -184,7 +194,7 @@ $('loginForm').addEventListener('submit', async (e) => {
 });
 
 async function signOut() {
-  if (authConfig.mode === 'gateway') { window.location.href = '/.auth/logout?post_logout_redirect_uri=/'; return; }
+  if (authConfig.mode === 'gateway') { window.location.href = '/.auth/logout?post_logout_redirect_uri=' + (ON_ADMIN_PAGE ? '/nsadmin' : '/'); return; }
   try { await api('POST', '/api/auth/logout'); } catch (e) { /* already signed out */ }
   vehicles = []; bookings = []; drivers = []; incidentReports = []; companyCarMe = null;
   $('l-email').value = '';
@@ -1481,7 +1491,6 @@ async function init() {
   } catch (err) {
     if (err.status === 401 && authConfig.mode === 'gateway') {
       showLogin('Sign in with your Neumann account to continue.');
-      $('loginError').insertAdjacentHTML('afterend', '<a class="btn-primary landing-btn" style="text-align:center;text-decoration:none;" href="/.auth/login/aad">Sign in with Microsoft</a>');
     } else if (err.status === 401) {
       showLogin();
     } else {
