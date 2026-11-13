@@ -5,9 +5,10 @@ import { config } from './config.js';
 const scrypt = promisify(crypto.scrypt);
 
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code) {
     super(message);
     this.status = status;
+    if (code) this.code = code;
   }
 }
 

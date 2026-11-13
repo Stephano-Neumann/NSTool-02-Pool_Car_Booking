@@ -30,8 +30,11 @@ async function api(method, path, body) {
   try { data = await res.json(); } catch (e) { /* no body */ }
   if (!res.ok) {
     if (res.status === 401 && path !== '/api/auth/login' && path !== '/api/me') sessionExpired();
+    // Role removed in Entra while signed in: the server now refuses everything, so show the no-access screen.
+    if (res.status === 403 && data && data.code === 'no_role' && path !== '/api/me' && session) showNoRole(data.error);
     const err = new Error((data && data.error) || 'Request failed (' + res.status + ')');
     err.status = res.status;
+    if (data && data.code) err.code = data.code;
     throw err;
   }
   return data;
@@ -147,6 +150,20 @@ function showLogin(message) {
   $('l-password').value = '';
   if (message) showError('loginError', message); else clearError('loginError');
   showScreen('loginScreen');
+}
+// Replaces any sign-in / sign-out button under the message on the sign-in screen.
+function setLoginLink(href, label) {
+  document.querySelectorAll('#loginScreen .landing-btn').forEach((el) => el.remove());
+  const a = document.createElement('a');
+  a.className = 'btn-primary landing-btn';
+  a.style.cssText = 'text-align:center;text-decoration:none;';
+  a.href = href;
+  a.textContent = label;
+  $('loginError').insertAdjacentElement('afterend', a);
+}
+function showNoRole(message) {
+  showLogin(message || 'You are signed in but have no access to this app. Ask your administrator to assign you the CarPool.User or CarPool.Admin role.');
+  setLoginLink('/.auth/logout', 'Sign out');
 }
 function sessionExpired() {
   if (session) showLogin('Your session has ended. Please sign in again.');
@@ -1501,9 +1518,11 @@ async function init() {
     const user = await api('GET', '/api/me');
     await afterSignIn(user);
   } catch (err) {
-    if (err.status === 401 && authConfig.mode === 'gateway') {
+    if (err.status === 403 && err.code === 'no_role' && authConfig.mode === 'gateway') {
+      showNoRole(err.message);
+    } else if (err.status === 401 && authConfig.mode === 'gateway') {
       showLogin('Sign in with your Neumann account to continue.');
-      $('loginError').insertAdjacentHTML('afterend', '<a class="btn-primary landing-btn" style="text-align:center;text-decoration:none;" href="/.auth/login/aad">Sign in with Microsoft</a>');
+      setLoginLink('/.auth/login/aad', 'Sign in with Microsoft');
     } else if (err.status === 401) {
       showLogin();
     } else {

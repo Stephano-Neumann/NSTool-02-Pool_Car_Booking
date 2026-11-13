@@ -340,15 +340,49 @@ test('gateway mode trusts the Easy Auth principal and maps the Entra role', asyn
         ...roles.map(r => ({ typ: 'roles', val: r }))],
     })).toString('base64');
     const c = client();
+    const as = (roles) => ({ 'X-MS-CLIENT-PRINCIPAL': principal(roles) });
     assert.equal((await c.get('/api/me')).status, 401, 'no header, no user');
-    const driver = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal([]) });
+    const driver = await c.raw('GET', '/api/me', undefined, as(['CarPool.User']));
     assert.equal(driver.body.role, 'driver');
     assert.equal(driver.body.email, 'gate.way@neumann.com.au');
-    const admin = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal(['Admin']) });
+    const admin = await c.raw('GET', '/api/me', undefined, as(['CarPool.Admin']));
     assert.equal(admin.body.role, 'admin');
-    assert.equal((await c.raw('GET', '/api/drivers', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal([]) })).status, 403);
+    assert.equal((await c.raw('GET', '/api/drivers', undefined, as(['CarPool.User']))).status, 403, 'user cannot reach admin routes');
+    assert.equal((await c.raw('GET', '/api/drivers', undefined, as(['CarPool.Admin']))).status, 200, 'admin can');
+    const both = await c.raw('GET', '/api/me', undefined, as(['CarPool.User', 'CarPool.Admin']));
+    assert.equal(both.body.role, 'admin', 'admin wins when both roles are held');
+    assert.equal((await c.raw('GET', '/api/me', undefined, as(['CarPool.Admin', 'CarPool.User']))).body.role, 'admin', 'order does not matter');
+    const arr = await c.raw('GET', '/api/me', undefined, as([JSON.stringify(['CarPool.User', 'CarPool.Admin'])]));
+    assert.equal(arr.body.role, 'admin', 'roles delivered as a JSON array claim');
     assert.equal((await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': 'garbage' })).status, 401);
     assert.equal((await client().login(E('admin'))).status, 404, 'password login is off in gateway mode');
+
+    // Neither role: denied everywhere, with a code the page uses to show the no-access screen.
+    for (const roles of [[], ['Admin'], ['carpool.admin'], ['CarPool.Reader'], ['CarPool.Admin.Extra']]) {
+      const denied = await c.raw('GET', '/api/me', undefined, as(roles));
+      assert.equal(denied.status, 403, JSON.stringify(roles));
+      assert.equal(denied.body.code, 'no_role');
+      assert.equal((await c.raw('GET', '/api/vehicles', undefined, as(roles))).status, 403, `vehicles ${JSON.stringify(roles)}`);
+      assert.equal((await c.raw('GET', '/api/drivers', undefined, as(roles))).status, 403, `drivers ${JSON.stringify(roles)}`);
+      assert.equal((await c.raw('POST', '/api/vehicles', { rego: 'NOROLE1', model: 'X' }, as(roles))).status, 403, `write ${JSON.stringify(roles)}`);
+    }
+    const noUser = (email) => db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const nobody = Buffer.from(JSON.stringify({ auth_typ: 'aad', role_typ: 'roles', claims: [{ typ: 'preferred_username', val: 'no.role@neumann.com.au' }, { typ: 'name', val: 'No Role' }] })).toString('base64');
+    assert.equal((await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': nobody })).status, 403);
+    assert.equal(noUser('no.role@neumann.com.au'), undefined, 'a user with no role gets no account');
+
+    // Role changes in Entra apply on the next request that carries the new token.
+    assert.equal((await c.raw('GET', '/api/drivers', undefined, as(['CarPool.User']))).status, 403);
+    assert.equal((await c.raw('GET', '/api/drivers', undefined, as(['CarPool.Admin']))).status, 200, 'promoted');
+    assert.equal(noUser('gate.way@neumann.com.au').role, 'admin');
+    assert.equal((await c.raw('GET', '/api/drivers', undefined, as(['CarPool.User']))).status, 403, 'demoted');
+    assert.equal(noUser('gate.way@neumann.com.au').role, 'driver');
+    assert.equal((await c.raw('GET', '/api/me', undefined, as([]))).status, 403, 'role removed');
+    assert.equal((await c.raw('GET', '/api/me', undefined, as(['CarPool.User']))).body.role, 'driver', 'role given back');
+
+    // The old bootstrap list is gone: an address that used to be a hard-coded admin gets nothing without the role.
+    assert.equal('adminEmails' in config, false);
+    assert.equal('adminRole' in config, false);
   } finally {
     config.authMode = 'local';
   }
@@ -360,7 +394,7 @@ test('gateway mode rejects emails outside ALLOWED_EMAIL_DOMAINS', async () => {
   try {
     const principal = (email) => Buffer.from(JSON.stringify({
       auth_typ: 'aad', name_typ: 'name', role_typ: 'roles',
-      claims: [{ typ: 'preferred_username', val: email }, { typ: 'name', val: 'Dom Ain' }],
+      claims: [{ typ: 'preferred_username', val: email }, { typ: 'name', val: 'Dom Ain' }, { typ: 'roles', val: 'CarPool.User' }],
     })).toString('base64');
     const c = client();
     const outside = await c.raw('GET', '/api/me', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('someone@gmail.com') });
@@ -396,8 +430,9 @@ test('gateway mode serves /nsadmin to admins only', async () => {
     })).toString('base64');
     const c = client();
     assert.equal((await c.raw('GET', '/nsadmin')).status, 403, 'no principal');
-    assert.equal((await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.driver@neumann.com.au', []) })).status, 403, 'driver');
-    const admin = await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.admin@neumann.com.au', ['Admin']) });
+    assert.equal((await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.none@neumann.com.au', []) })).status, 403, 'no role');
+    assert.equal((await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.driver@neumann.com.au', ['CarPool.User']) })).status, 403, 'user');
+    const admin = await c.raw('GET', '/nsadmin', undefined, { 'X-MS-CLIENT-PRINCIPAL': principal('page.admin@neumann.com.au', ['CarPool.Admin']) });
     assert.equal(admin.status, 200);
     assert.match(admin.body, /id="loginForm"/);
   } finally {

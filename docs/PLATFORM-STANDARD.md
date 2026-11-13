@@ -72,7 +72,7 @@ Rules: no secrets in the repo (`.env` is ignored, `.env.example` documents every
 
 Gateway mode is only safe when the platform is set to **require authentication** and block anonymous requests. Otherwise the header can be forged. Verify this before go-live by calling the app directly with no sign-in and a made-up header.
 
-**Roles** come from Entra app roles in production (`ADMIN_ROLE`, default `Admin`; `ADMIN_EMAILS` bootstraps the first admins). Each tool documents its roles in a table:
+**Roles** come from Entra app roles in production (this tool: `CarPool.User` and `CarPool.Admin`; admin wins if both, neither means no access; no email-based admin list). Each tool documents its roles in a table:
 
 | Role | Can | Cannot |
 |---|---|---|

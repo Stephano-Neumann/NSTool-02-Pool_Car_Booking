@@ -17,8 +17,11 @@ Browser ──► Container App ingress ──► Easy Auth (Entra sign-in) ─�
 
 | Role | How it is granted |
 |---|---|
-| Admin | Entra app role `Admin` (setting `ADMIN_ROLE`), or the email is listed in `ADMIN_EMAILS` (bootstrap) |
-| Driver | Everyone else who signs in |
+| Admin | Entra app role `CarPool.Admin`. Also has all normal booking access, and wins if the user holds both roles |
+| Driver | Entra app role `CarPool.User` |
+| No access | Neither role. Every `/api` call returns 403 with `code: "no_role"`, `/nsadmin` returns the no-access page, and no user record is created |
+
+The role is read from the `roles` claim in `X-MS-CLIENT-PRINCIPAL` on every request and the stored role is overwritten, so nothing in the app caches it. A change in Entra shows up when the platform next hands the app a token carrying the new roles, which is at the user's next sign-in (or when the Easy Auth session cookie expires). There is no email list that grants admin.
 
 Already in the app and needing no change: first-run licence prompt, policy acknowledgement, sign-in and sign-out links (`/.auth/login/aad`, `/.auth/logout`), password features hidden in gateway mode, and refusal to start in production with test logins or local passwords.
 
@@ -38,14 +41,15 @@ In the Entra admin centre → **App registrations → New registration**:
 3. After creating it, record the **Application (client) ID** and **Directory (tenant) ID**.
 4. **Authentication** → under *Implicit grant and hybrid flows*, tick **ID tokens**.
 5. **Certificates & secrets** → new client secret. Record the value (shown once) and set a calendar reminder for its expiry. Store it in Key Vault, never in the repo.
-6. **App roles** → create a role:
-   - Display name `Admin`, allowed member types *Users/Groups*, **value `Admin`** (must match `ADMIN_ROLE`), enabled.
+6. **App roles** → create two roles, both with allowed member types *Users/Groups* and enabled. The values must match exactly (case-sensitive):
+   - Display name `Car Pool User`, **value `CarPool.User`** (normal booking access).
+   - Display name `Car Pool Admin`, **value `CarPool.Admin`** (administrator, includes normal booking access).
 7. **Token configuration** → add the optional claims `email` and `upn` to the ID token if the sign-in later fails with "no email" (the app accepts `preferred_username`, `upn` or `emails`).
 
 Then in **Enterprise applications → NST Car Booking**:
 
 1. **Properties** → set **Assignment required? = Yes**. Only assigned people and groups can now sign in.
-2. **Users and groups** → assign the groups who may use the tool as normal users, and assign the people who should be admins with the **Admin** role.
+2. **Users and groups** → assign the groups who may use the tool the **Car Pool User** role, and the people who should be admins the **Car Pool Admin** role. **Assign yourself an admin role before the first production deploy**: the app has no email fallback, and anyone with neither role is denied. A person with both roles is an admin.
 
 ## 4. Turn on authentication on the Container App
 
@@ -77,7 +81,6 @@ Set these on the deployment (GitHub repository **variables**, read by the pipeli
 | `APP_ENV` | `production` |
 | `AUTH_MODE` | `gateway` |
 | `SEED_TEST_DATA` | `false` (forced off in production anyway) |
-| `ADMIN_EMAILS` | Your own email, so you can sign in as admin before roles propagate. Remove it once the `Admin` role works |
 
 Push to `main` (or re-run the workflow). The app refuses to start in production if test data or local sign-in is still on, which is the intended safety net.
 
@@ -89,7 +92,7 @@ Staging can stay on local sign-in with test logins while production uses SSO. Ke
 |---|---|
 | Open `https://<fqdn>/` in a private window | Redirected to Microsoft sign-in, then the menu |
 | Sign in as an assigned driver | Menu shows; licence prompt on first use; no admin screens |
-| Sign in as an `Admin`-role user | Admin screens appear |
+| Sign in as a `CarPool.Admin` user | Admin screens appear |
 | Sign in as someone not assigned | Microsoft blocks sign-in |
 | `curl -i https://<fqdn>/api/me` (no sign-in) | 302 or 401, never user data |
 | `curl -i https://<fqdn>/health` | 200 `{"status":"ok",...}` |
@@ -115,7 +118,7 @@ If the forged-header call returns user data, **stop**. Authentication is not bei
 | Redirect loop | Redirect URI in the app registration does not exactly match `https://<fqdn>/.auth/login/aad/callback` |
 | Signed in but the app shows the sign-in page again | Ingress is bypassing Easy Auth, or `AUTH_MODE` is still `local` |
 | 401 on `/api/me` after sign-in | Principal has no usable email claim; add `email`/`upn` optional claims (section 3, step 7) |
-| Everyone is a driver, nobody admin | `Admin` role not assigned in the enterprise app, role value is not exactly `Admin`, or user has not signed in again since |
+| Everyone gets "no access", or nobody is admin | Role not assigned in the enterprise app, role value is not exactly `CarPool.User` / `CarPool.Admin`, or the user has not signed out and in again since the assignment |
 | App will not start in production | `SEED_TEST_DATA` or `AUTH_MODE=local` still set, read the startup error in the logs |
 | `AADSTS50105` | "Assignment required" is on and the user is not assigned |
 | Pipeline smoke test fails | `/health` is not in the excluded paths |
@@ -126,4 +129,4 @@ Set `AUTH_MODE=local` and `APP_ENV=staging` and redeploy (only in a non-producti
 
 ## 10. Reusing this for the next platform
 
-The app side is identical for every platform (`AUTH_MODE=gateway`, the `Admin` role, the excluded paths). Per platform you need only a new app registration (or a new redirect URI on a shared registration), role assignments, and the Authentication settings on its Container App.
+The app side is identical for every platform (`AUTH_MODE=gateway`, the `CarPool.User` / `CarPool.Admin` roles, the excluded paths). Per platform you need only a new app registration (or a new redirect URI on a shared registration), role assignments, and the Authentication settings on its Container App.

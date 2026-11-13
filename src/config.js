@@ -10,9 +10,7 @@ export const config = {
   authMode: env.AUTH_MODE || 'local',      // local = email + password, gateway = Entra ID via Azure Easy Auth
   allowLocalAuthInProd: flag(env.ALLOW_LOCAL_AUTH),
   seedTestData: flag(env.SEED_TEST_DATA),  // test logins + sample data; refused in production
-  adminEmails: list(env.ADMIN_EMAILS),     // gateway mode: these emails are always admins
   allowedEmailDomains: list(env.ALLOWED_EMAIL_DOMAINS), // gateway mode: only these email domains may sign in (empty = any)
-  adminRole: env.ADMIN_ROLE || 'Admin',    // gateway mode: Entra app role that grants admin
   sqliteJournalMode: (env.SQLITE_JOURNAL_MODE || 'WAL').toUpperCase(), // use DELETE on Azure Files (SMB)
   sessionHours: Number(env.SESSION_HOURS || 12),
   alertWebhookUrl: env.ALERT_WEBHOOK_URL || '',
@@ -22,6 +20,11 @@ export const config = {
   dataApiKey: env.DATA_API_KEY || '',          // Data Export API key (Fabric). Empty = export disabled
   dataApiKeyNext: env.DATA_API_KEY_NEXT || '', // optional second key, for zero-downtime rotation
 };
+
+// Gateway mode: the Entra app role values (App registration > App roles) that decide access.
+// CarPool.User = normal booking access, CarPool.Admin = administrator (also has all user access).
+// Anyone with neither is denied. Both = admin.
+export const ENTRA_ROLES = Object.freeze({ user: 'CarPool.User', admin: 'CarPool.Admin' });
 
 export const TEST_PASSWORD = 'neumansteel123';
 

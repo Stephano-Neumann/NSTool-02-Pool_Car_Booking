@@ -44,3 +44,12 @@ Pre-deployment fixes from the Azure deployment guide.
 - Sign-in page is identical in every environment: the clickable test-login list is gone and `/api/auth/config` no longer returns test accounts or the test password.
 - Archive, Restore and Delete failed with a bare `Request failed (403)` on the deployed site, and so did every other write (POST). Cause: the app sent `Referrer-Policy: no-referrer`, so the browser sent no Referer, and the Azure Container Apps sign-in layer (Easy Auth) rejects any POST without one as a possible cross-site forgery, before it reaches the app. The app now sends `Referrer-Policy: same-origin` (Referer to our own site only, nothing to other sites); new test. Every non-GET request also sends a JSON body, which is harmless.
 - Archive: the page now reports a failed refresh after a successful archive instead of failing silently; new test covers archiving a vehicle that has bookings.
+
+## 1.3.0
+
+- Production access is now decided by the Entra app roles on the signed-in user's token (`roles` claim): `CarPool.User` gives normal booking access, `CarPool.Admin` gives administrator access plus everything a user has, and administrator wins if both are held. Users with neither role are denied: every API call returns 403 (`code: "no_role"`), `/nsadmin` shows the no-access page, the main page shows a no-access message with a Sign out button, and no user record is created.
+- Removed the hard-coded admin list: `ADMIN_EMAILS`, `ADMIN_ROLE`, the `adminEmails` Bicep parameter and the pipeline variable are gone. **Before deploying, assign `CarPool.Admin` to the admins in Entra, or nobody will be able to administer the app.**
+- Roles are re-read from the token on every request, so a changed role applies as soon as Entra issues a token with it (next sign-in). A role removed mid-session is refused on the next call and the page switches to the no-access screen.
+- Role value matching is exact and case-sensitive (`Admin` or `carpool.admin` no longer grant anything). Test environments (`AUTH_MODE=local`) are unchanged.
+- Tests: both roles, both together, neither, old role names, array-style roles claim, promotion, demotion and removal between requests, no account for no-role users.
+

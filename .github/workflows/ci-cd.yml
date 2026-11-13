@@ -51,7 +51,6 @@ jobs:
       APP_ENV: ${{ vars.APP_ENV || 'staging' }}
       AUTH_MODE: ${{ vars.AUTH_MODE || 'local' }}
       SEED_TEST_DATA: ${{ vars.SEED_TEST_DATA || 'true' }}
-      ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS || '' }}
       ALLOWED_EMAIL_DOMAINS: ${{ vars.ALLOWED_EMAIL_DOMAINS || '' }}
       ALLOWED_IP_RANGES: ${{ vars.ALLOWED_IP_RANGES || '[]' }}
     steps:
@@ -83,7 +82,7 @@ jobs:
           out=$(az deployment group create -g "$RG" -f infra/main.bicep \
             -p image="${{ steps.infra.outputs.server }}/$IMAGE_NAME:${{ github.sha }}" \
                appEnv="$APP_ENV" authMode="$AUTH_MODE" seedTestData="$SEED_TEST_DATA" \
-               adminEmails="$ADMIN_EMAILS" allowedEmailDomains="$ALLOWED_EMAIL_DOMAINS" allowedIpRanges="$ALLOWED_IP_RANGES" \
+               allowedEmailDomains="$ALLOWED_EMAIL_DOMAINS" allowedIpRanges="$ALLOWED_IP_RANGES" \
                appVersion="${{ github.sha }}" dataApiKey="${{ secrets.DATA_API_KEY }}" \
             --query properties.outputs -o json)
           echo "fqdn=$(echo "$out" | jq -r .appFqdn.value)" >> "$GITHUB_OUTPUT"
