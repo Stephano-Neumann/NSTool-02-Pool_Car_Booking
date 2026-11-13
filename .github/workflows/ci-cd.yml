@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: API tests
         run: docker build --target test -t nst-car-booking:test .
@@ -54,7 +54,7 @@ jobs:
       ALLOWED_EMAIL_DOMAINS: ${{ vars.ALLOWED_EMAIL_DOMAINS || '' }}
       ALLOWED_IP_RANGES: ${{ vars.ALLOWED_IP_RANGES || '[]' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/login@v2
         with:
