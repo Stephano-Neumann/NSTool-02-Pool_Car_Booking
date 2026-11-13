@@ -80,12 +80,21 @@ function provisionGatewayUser(db, principal) {
 
 // ---- middleware ----------------------------------------------------------
 
+// Gateway mode defence in depth: with ALLOWED_EMAIL_DOMAINS set, anyone signed in
+// through Entra with an address outside those domains is treated as not signed in
+// and no user row is created for them. Empty list = no restriction.
+export function emailDomainAllowed(email) {
+  if (!config.allowedEmailDomains.length) return true;
+  const domain = String(email || '').toLowerCase().split('@').pop();
+  return config.allowedEmailDomains.includes(domain);
+}
+
 export function attachUser(db) {
   return (req, res, next) => {
     req.user = null;
     if (config.authMode === 'gateway') {
       const principal = readGatewayPrincipal(req);
-      if (principal) {
+      if (principal && emailDomainAllowed(principal.email)) {
         const user = provisionGatewayUser(db, principal);
         if (user.active) req.user = user;
       }

@@ -32,6 +32,9 @@ param deployApp bool = true
 @description('Gateway mode: comma-separated emails that are always admins.')
 param adminEmails string = ''
 
+@description('Gateway mode: comma-separated email domains allowed to sign in, e.g. neumann.com.au. Empty = any.')
+param allowedEmailDomains string = ''
+
 @description('Public IPv4 ranges allowed to reach the app, e.g. ["203.0.113.0/24"]. Empty = open to the internet.')
 param allowedIpRanges array = []
 
@@ -136,7 +139,7 @@ var dataKeySecrets = empty(dataApiKey) ? [] : [{ name: 'data-api-key', value: da
 var dataKeyEnv = empty(dataApiKey) ? [] : [{ name: 'DATA_API_KEY', secretRef: 'data-api-key' }]
 var effectiveSeed = appEnv == 'production' ? false : seedTestData
 
-resource app 'Microsoft.App/containerApps@2024-03-01' = if (deployApp) {
+resource app 'Microsoft.App/containerApps@2025-01-01' = if (deployApp) {
   name: 'ca-${appName}'
   location: location
   identity: {
@@ -173,6 +176,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = if (deployApp) {
             { name: 'ALLOW_LOCAL_AUTH', value: authMode == 'local' && appEnv != 'production' ? 'true' : 'false' }
             { name: 'SEED_TEST_DATA', value: string(effectiveSeed) }
             { name: 'ADMIN_EMAILS', value: adminEmails }
+            { name: 'ALLOWED_EMAIL_DOMAINS', value: allowedEmailDomains }
             { name: 'APP_VERSION', value: appVersion }
             { name: 'PLATFORM_NAME', value: appName }
 
@@ -197,7 +201,16 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = if (deployApp) {
         }
       ]
       // SQLite allows one writer, so the app must never scale beyond a single replica.
-      scale: { minReplicas: 1, maxReplicas: 1 }
+      // Idle hibernation rule: with no requests for 1 hour (cooldownPeriod) the app scales to zero
+      // and wakes on the next visit. The data stays on the Azure Files share.
+      scale: {
+        minReplicas: 0
+        maxReplicas: 1
+        cooldownPeriod: 3600
+        rules: [
+          { name: 'http-idle', http: { metadata: { concurrentRequests: '10' } } }
+        ]
+      }
     }
   }
   dependsOn: [acrPull]

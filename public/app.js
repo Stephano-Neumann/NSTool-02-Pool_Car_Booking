@@ -19,6 +19,11 @@ async function api(method, path, body) {
   } else if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
+  } else if (method !== 'GET' && method !== 'HEAD') {
+    // Never send a bodyless POST/PUT/DELETE: Azure's gateway layer rejects those with a bare 403
+    // (no JSON body from this app), which is what made Archive and Restore fail in the deployed site.
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = '{}';
   }
   const res = await fetch(path, opts);
   let data = null;
@@ -131,8 +136,14 @@ function showLanding() {
 
 // ---------- sign in / sign out ----------
 
+const ON_ADMIN_PAGE = window.location.pathname.replace(/\/+$/, '').toLowerCase() === '/nsadmin';
+
 function showLogin(message) {
   session = null;
+  // Password sign-in is only offered on /nsadmin (local auth mode); the main page shows no form.
+  const showForm = authConfig.mode === 'local' && ON_ADMIN_PAGE;
+  $('loginForm').style.display = showForm ? '' : 'none';
+  if (!showForm && authConfig.mode === 'local' && !message) message = 'Sign in is not available on this page.';
   $('l-password').value = '';
   if (message) showError('loginError', message); else clearError('loginError');
   showScreen('loginScreen');
@@ -1491,7 +1502,6 @@ async function init() {
     await afterSignIn(user);
   } catch (err) {
     if (err.status === 401 && authConfig.mode === 'gateway') {
-      $('loginForm').style.display = 'none';
       showLogin('Sign in with your Neumann account to continue.');
       $('loginError').insertAdjacentHTML('afterend', '<a class="btn-primary landing-btn" style="text-align:center;text-decoration:none;" href="/.auth/login/aad">Sign in with Microsoft</a>');
     } else if (err.status === 401) {

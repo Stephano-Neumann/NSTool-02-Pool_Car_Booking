@@ -48,6 +48,7 @@ All settings are environment variables. See [.env.example](.env.example).
 | `SEED_TEST_DATA` | `false` | Test logins and sample data. The app refuses to start with this on in production |
 | `DATA_DIR` | `./data` (`/data` in the image) | Where `app.db` lives. Mount a persistent volume here |
 | `SQLITE_JOURNAL_MODE` | `WAL` | Use `DELETE` when `DATA_DIR` is an Azure Files share |
+| `ALLOWED_EMAIL_DOMAINS` | empty | Gateway mode: comma-separated email domains allowed to sign in (e.g. `neumann.com.au`); anyone else is treated as signed out and no user is created. Empty = no restriction |
 | `ADMIN_ROLE` / `ADMIN_EMAILS` | `Admin` / empty | Gateway mode: Entra app role that grants admin, and emails that are always admin |
 | `ALERT_WEBHOOK_URL` | empty | Power Automate HTTP trigger for booking alert emails (admins can also set it in the app) |
 | `DATA_API_KEY` / `PLATFORM_NAME` | empty / `car-booking` | Key for the read-only Data Export API used by Fabric (empty = disabled), and the name used in lake tables |
@@ -74,7 +75,7 @@ One-time setup (steps 2 and 3 need Entra and subscription permissions; if you do
 2. Create an Entra app registration with a federated credential for this repo's `main` branch (GitHub OIDC), so no secret is stored.
 3. Give that identity **Contributor** and **Role Based Access Control Administrator** on the resource group (the template grants the app permission to pull from the registry).
 4. In GitHub, add repository secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and repository variable `AZURE_RESOURCE_GROUP`.
-5. Optional variables: `APP_ENV` (`staging` default), `AUTH_MODE`, `SEED_TEST_DATA`, `ADMIN_EMAILS`, `ALLOWED_IP_RANGES` (e.g. `["203.0.113.0/24"]`).
+5. Optional variables: `APP_ENV` (`staging` default), `AUTH_MODE`, `SEED_TEST_DATA`, `ADMIN_EMAILS`, `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_IP_RANGES` (e.g. `["203.0.113.0/24"]`).
 6. Push to `main`. The deployed URL is `https://<fqdn>/health` in the workflow log, or `az containerapp show -g <rg> -n ca-nstcarbooking --query properties.configuration.ingress.fqdn`.
 
 **Staging has test logins with a shared, known password. Set `ALLOWED_IP_RANGES` to your office ranges, or do not put the URL anywhere public, and keep real data out of it.**
@@ -88,10 +89,10 @@ One-time setup (steps 2 and 3 need Entra and subscription permissions; if you do
 
 ## Known limits
 
-- **SQLite, one replica.** The template pins `minReplicas = maxReplicas = 1` and mounts the database on Azure Files with `nobrl` and the rollback journal, because SMB does not support SQLite locking or WAL reliably. That is fine for this tool's size. Do not raise the replica count. If the tool outgrows this, move to Azure SQL or PostgreSQL (standard, section 7).
-- **Backups are not configured by the template.** Turn on Azure Backup (or scheduled share snapshots) for the storage account's `app-data` share and try a restore before relying on it.
+- **SQLite, one replica.** The template pins `maxReplicas = 1`, sets `minReplicas = 0` with `cooldownPeriod = 3600` so the app hibernates after 1 hour with no use and wakes on the next visit (the first visit after a sleep is slow), and mounts the database on Azure Files with `nobrl` and the rollback journal, because SMB does not support SQLite locking or WAL reliably. That is fine for this tool's size. Do not raise `maxReplicas`. If the tool outgrows this, move to Azure SQL or PostgreSQL (standard, section 7).
+- **Backups.** The app-data share is protected by Azure Backup (vault rsv-nstcarbooking, daily at 7:30 PM UTC, kept 30 days). A restore of app.db from the 9 Nov 2026 recovery point into a separate share was tested and worked. Repeat a restore test after any change to the backup setup. The backup setup lives in Azure, not in the Bicep template.
 - **Booking emails** are sent through a webhook (Power Automate) as in the original tool. Without one they are logged only. A Graph `sendMail` integration is the longer-term route.
-- **Not yet verified:** the Azure deployment (Bicep, workflow and Entra setup) has not been run against a real subscription. Expect to fix small things on the first run. Local Docker, the API tests and the browser walkthrough have been run.
+- **Verified on staging (9 Nov 2026):** the Azure deployment (Bicep, workflow, managed identity, Azure Files mount) runs, and bookings survive a revision restart, a stop and start, and a new revision deployed from a merged pull request. Production sign-in with Entra is not yet set up.
 
 ## Differences from the original single-file tool
 
