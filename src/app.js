@@ -20,6 +20,10 @@ export function createApp(db) {
   app.set('trust proxy', 1); // Container Apps terminates TLS in front of us
 
   app.use(helmet({
+    // Helmet's default is "no-referrer". Azure Container Apps' built-in sign-in layer (Easy Auth) rejects
+    // every POST that has no Referer with a bare 403 ("Cross-site request forgery detected"), before it
+    // reaches this app. "same-origin" sends the Referer to ourselves only, so nothing leaks to other sites.
+    referrerPolicy: { policy: 'same-origin' },
     contentSecurityPolicy: {
       useDefaults: false,
       directives: {

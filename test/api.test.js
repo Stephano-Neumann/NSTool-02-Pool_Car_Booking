@@ -53,6 +53,13 @@ test('health check is public', async () => {
   assert.equal(r.body.status, 'ok');
 });
 
+test('pages send Referrer-Policy same-origin: Azure Easy Auth 403s POSTs that carry no Referer', async () => {
+  for (const path of ['/health', '/']) {
+    const res = await fetch(base + path);
+    assert.equal(res.headers.get('referrer-policy'), 'same-origin', path);
+  }
+});
+
 test('every seeded test account signs in with the shared password, except the disabled one', async () => {
   for (const a of TEST_ACCOUNTS) {
     const r = await client().login(a.email);

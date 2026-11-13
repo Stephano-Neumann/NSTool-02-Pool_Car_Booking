@@ -41,6 +41,8 @@ There are two separate mechanisms. They are not interchangeable.
 
 Every **POST, PUT, PATCH and DELETE** under `/api` must also send the header `X-Requested-By: nst-app` (a cross-site request guard). A missing header returns 403.
 
+In production, browser calls must also carry a `Referer` for the same site: Azure's sign-in layer in front of the app answers any POST without one with a bare 403 (no JSON body). The app sets `Referrer-Policy: same-origin` so the browser sends it. Do not change that policy to `no-referrer`.
+
 **Data Export API: a key, not a user.** `Authorization: Bearer <key>` or `X-Api-Key: <key>`. A signed-in session is not accepted there.
 
 **Roles.** `admin` can do everything. `driver` can use only their own records. Requirements are shown per endpoint: *any* = any signed-in user, *admin* = admin only, *owner* = the driver who owns the record.
