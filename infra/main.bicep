@@ -29,9 +29,6 @@ param image string = ''
 @description('false = create the registry, storage and environment only (the first pipeline step), true = also create the app.')
 param deployApp bool = true
 
-@description('Gateway mode: comma-separated emails that are always admins.')
-param adminEmails string = ''
-
 @description('Gateway mode: comma-separated email domains allowed to sign in, e.g. neumann.com.au. Empty = any.')
 param allowedEmailDomains string = ''
 
@@ -175,7 +172,6 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (deployApp) {
             { name: 'AUTH_MODE', value: authMode }
             { name: 'ALLOW_LOCAL_AUTH', value: authMode == 'local' && appEnv != 'production' ? 'true' : 'false' }
             { name: 'SEED_TEST_DATA', value: string(effectiveSeed) }
-            { name: 'ADMIN_EMAILS', value: adminEmails }
             { name: 'ALLOWED_EMAIL_DOMAINS', value: allowedEmailDomains }
             { name: 'APP_VERSION', value: appVersion }
             { name: 'PLATFORM_NAME', value: appName }

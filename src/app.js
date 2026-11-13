@@ -67,7 +67,7 @@ export function createApp(db) {
       return res.status(403).type('html').send(
         '<!doctype html><meta charset="utf-8"><title>No access</title>' +
         '<body style="font-family:sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
-        '<h1>No access</h1><p>This page is for administrators. If you need admin rights, ask your administrator.</p>' +
+        '<h1>No access</h1><p>This page is for administrators (the CarPool.Admin role). If you need admin rights, ask your administrator.</p>' +
         '<p><a href="/">Back to the company car booking</a></p></body>');
     }
     res.sendFile(path.join(publicDir, 'index.html'));
@@ -87,7 +87,7 @@ export function createApp(db) {
       : err.type === 'entity.too.large' ? 'That file is too large (5MB limit).'
       : err.type === 'entity.parse.failed' ? 'Invalid request.'
       : err.message;
-    res.status(status).json({ error: message });
+    res.status(status).json(err.code ? { error: message, code: err.code } : { error: message });
   });
 
   return app;

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { config } from './config.js';
+import { config, ENTRA_ROLES } from './config.js';
 import { HttpError, nowIso, verifyPassword, EMAIL_RE } from './util.js';
 
 const COOKIE = 'nst_sid';
@@ -58,22 +58,37 @@ export function readGatewayPrincipal(req) {
   }
   if (!mail) return null;
   const name = claim('name') || claim('http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name') || mail.split('@')[0];
+  // The roles claim of the validated Entra token. Easy Auth lists one claim per role; some setups send
+  // a single claim holding a JSON array, so accept both.
   const roles = claims
     .filter(c => c.typ === 'roles' || c.typ === principal.role_typ || c.typ === 'http://schemas.microsoft.com/ws/2008/06/identity/claims/role')
-    .map(c => c.val);
+    .flatMap(c => {
+      const v = c.val;
+      if (typeof v === 'string' && v.trim().startsWith('[')) {
+        try { const arr = JSON.parse(v); if (Array.isArray(arr)) return arr.map(String); } catch { /* plain value */ }
+      }
+      return [String(v)];
+    });
   return { email: mail.toLowerCase(), name, roles };
 }
 
-function provisionGatewayUser(db, principal) {
-  const isAdmin = principal.roles.includes(config.adminRole) || config.adminEmails.includes(principal.email);
-  const role = isAdmin ? 'admin' : 'driver';
+// Maps Entra app roles to the app's role. Exact, case-sensitive match on the two role values.
+// CarPool.Admin wins when a user has both. Returns null when the user has neither (= no access).
+export function roleFromEntraRoles(roles) {
+  if (roles.includes(ENTRA_ROLES.admin)) return 'admin';
+  if (roles.includes(ENTRA_ROLES.user)) return 'driver';
+  return null;
+}
+
+function provisionGatewayUser(db, principal, role) {
   const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(principal.email);
   if (!existing) {
     const id = db.prepare('INSERT INTO users (email, name, role, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)')
       .run(principal.email, principal.name, role, nowIso(), nowIso()).lastInsertRowid;
     return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   }
-  // Entra is the source of truth for role; the app keeps the profile fields.
+  // Entra is the source of truth for role; the app keeps the profile fields. This runs on every request,
+  // so a changed role shows up as soon as the platform hands us a token carrying the new roles.
   db.prepare('UPDATE users SET role = ?, last_login_at = ? WHERE id = ?').run(role, nowIso(), existing.id);
   return { ...existing, role };
 }
@@ -92,10 +107,17 @@ export function emailDomainAllowed(email) {
 export function attachUser(db) {
   return (req, res, next) => {
     req.user = null;
+    req.noRole = false;
     if (config.authMode === 'gateway') {
       const principal = readGatewayPrincipal(req);
       if (principal && emailDomainAllowed(principal.email)) {
-        const user = provisionGatewayUser(db, principal);
+        const role = roleFromEntraRoles(principal.roles);
+        if (!role) {
+          // Signed in with Entra but holds neither CarPool role: no user is created and nothing is served.
+          req.noRole = true;
+          return next();
+        }
+        const user = provisionGatewayUser(db, principal, role);
         if (user.active) req.user = user;
       }
       return next();
@@ -111,13 +133,16 @@ export function attachUser(db) {
   };
 }
 
+const noRoleError = () => new HttpError(403,
+  `You are signed in but have no access to this app. Ask your administrator to assign you the ${ENTRA_ROLES.user} or ${ENTRA_ROLES.admin} role.`, 'no_role');
+
 export function requireAuth(req, res, next) {
-  if (!req.user) return next(new HttpError(401, 'Sign in required.'));
+  if (!req.user) return next(req.noRole ? noRoleError() : new HttpError(401, 'Sign in required.'));
   next();
 }
 
 export function requireAdmin(req, res, next) {
-  if (!req.user) return next(new HttpError(401, 'Sign in required.'));
+  if (!req.user) return next(req.noRole ? noRoleError() : new HttpError(401, 'Sign in required.'));
   if (req.user.role !== 'admin') return next(new HttpError(403, 'Admin access required.'));
   next();
 }
