@@ -14,7 +14,7 @@ Open <http://localhost:8080>. Data is stored in a Docker volume and survives res
 
 ## Test logins
 
-Password for **all** test logins: `neumansteel123`. The sign-in page lists them as click-to-sign-in rows while test data is on.
+Password for **all** test logins: `neumansteel123`. The sign-in page is the same in every environment (email and password); type a test email and the password above. Test accounts only exist while test data is on.
 
 | Email | Role | Use it to test |
 |---|---|---|

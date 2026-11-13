@@ -14,7 +14,7 @@ import { throttleCheck, throttleFail, throttleClear } from '../auth.js';
  */
 const DATASETS = {
   users:               { cols: 'id,email,name,role,licence,active,policy_ack_at,created_at,last_login_at,updated_at', wm: 'updated_at', pii: true },
-  vehicles:            { cols: 'id,rego,model,archived,archived_at,updated_at', wm: 'updated_at' },
+  vehicles:            { cols: 'id,rego,model,archived,archived_at,deleted,deleted_at,deleted_by,updated_at', wm: 'updated_at' },
   bookings:            { cols: 'id,vehicle_id,user_id,driver_name,licence,email,department,cost_centre,use_type,pickup,ret,status,created_at,reviewed_at,reviewed_by,actual_pickup,actual_return,start_km,finish_km,start_notes,finish_notes,fuel_ok,updated_at', wm: 'updated_at', pii: true },
   admin_profiles:      { cols: 'id,name,email,updated_at', wm: 'updated_at', pii: true },
   alerts_log:          { cols: 'id,kind,booking_id,recipients,subject,body,sent_at,delivered', wm: 'sent_at', pii: true },

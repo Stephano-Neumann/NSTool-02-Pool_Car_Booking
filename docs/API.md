@@ -65,11 +65,12 @@ User object: `{id, email, name, role, licence, policyAcked, profileComplete}`.
 
 | Method and path | Who | Purpose |
 |---|---|---|
-| `GET /api/vehicles` | any | Fleet. Admins also see archived vehicles. `[{id, rego, model, archived}]` |
+| `GET /api/vehicles` | any | Fleet. Admins also see archived and deleted vehicles (flagged). `[{id, rego, model, archived, deleted}]` |
 | `POST /api/vehicles` | admin | Body `{rego, model}`. 409 if the rego exists |
 | `PUT /api/vehicles/:id` | admin | Same body |
 | `POST /api/vehicles/:id/archive` | admin | Hides the vehicle from booking |
 | `POST /api/vehicles/:id/restore` | admin | Reverses archive |
+| `POST /api/vehicles/:id/delete` | admin | Body `{confirm: true}`. Soft delete: sets `deleted`, `deleted_at`, `deleted_by`; the row and all bookings and history are kept. Not reversible from the app; 404 on a deleted vehicle |
 | `GET /api/bookings` | any | Drivers get their own bookings in full and everyone else's as anonymous blocks (see below). Admins get everything. Declined bookings are visible only to their owner and admins |
 | `POST /api/bookings` | any | Create a booking, status `pending` |
 | `POST /api/bookings/:id/review` | admin | Body `{decision: "approved" \| "declined"}`. 409 if already reviewed |

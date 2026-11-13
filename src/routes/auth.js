@@ -1,11 +1,10 @@
 import { Router } from 'express';
-import { config, TEST_PASSWORD } from '../config.js';
+import { config } from '../config.js';
 import {
   requireAuth, createSession, destroySession, checkLocalLogin,
   throttleCheck, throttleFail, throttleClear,
 } from '../auth.js';
 import { HttpError, nowIso, hashPassword, verifyPassword, text, log } from '../util.js';
-import { TEST_ACCOUNTS } from '../seed.js';
 
 export function userOut(u) {
   return {
@@ -23,9 +22,6 @@ export function authRoutes(db) {
       mode: config.authMode,
       appEnv: config.appEnv,
       version: config.version,
-      testLogins: config.seedTestData && config.authMode === 'local'
-        ? { password: TEST_PASSWORD, accounts: TEST_ACCOUNTS.map(a => ({ email: a.email, label: a.label })) }
-        : null,
     });
   });
 
