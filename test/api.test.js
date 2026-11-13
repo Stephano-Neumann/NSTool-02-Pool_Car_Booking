@@ -246,6 +246,66 @@ test('fleet admin: add, duplicate rego, archive, restore', async () => {
   assert.equal(restored.body.archived, false);
 });
 
+test('fleet admin: delete is a soft flag, keeps bookings and history, and needs confirmation', async () => {
+  const admin = await loggedIn(E('admin'));
+  const pool = await loggedIn(E('driver.pool'));
+  const v = await admin.post('/api/vehicles', { rego: 'DEL-01', model: 'Delete me' });
+  const pickup = new Date(Date.now() + 5 * 864e5).toISOString();
+  const ret = new Date(Date.now() + 5 * 864e5 + 36e5).toISOString();
+  const booked = await pool.post('/api/bookings', { vehicleId: v.body.id, department: 'IT', costCentre: 'CC', use: 'Business', pickup, ret });
+  assert.equal(booked.status, 201);
+
+  // Drivers cannot delete; the admin must confirm explicitly.
+  assert.equal((await pool.post(`/api/vehicles/${v.body.id}/delete`, { confirm: true })).status, 403);
+  assert.equal((await admin.post(`/api/vehicles/${v.body.id}/delete`, {})).status, 400);
+
+  const del = await admin.post(`/api/vehicles/${v.body.id}/delete`, { confirm: true });
+  assert.equal(del.status, 200);
+  assert.equal(del.body.deleted, true);
+
+  // Nothing is removed: row, booking and audit entry are all still there.
+  const row = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(v.body.id);
+  assert.equal(row.deleted, 1);
+  assert.ok(row.deleted_at && row.deleted_by);
+  assert.ok(db.prepare('SELECT id FROM bookings WHERE id = ?').get(booked.body.id));
+  assert.ok(db.prepare("SELECT id FROM audit_log WHERE action = 'delete' AND entity = 'vehicle' AND entity_id = ?").get(String(v.body.id)));
+
+  // Gone from drivers and from booking; admins still get it, flagged, so old bookings keep their rego.
+  assert.ok(!(await pool.get('/api/vehicles')).body.some(x => x.id === v.body.id));
+  assert.equal((await admin.get('/api/vehicles')).body.find(x => x.id === v.body.id).deleted, true);
+  assert.equal((await pool.post('/api/bookings', { vehicleId: v.body.id, department: 'IT', costCentre: 'CC', use: 'Business', pickup: new Date(Date.now() + 9 * 864e5).toISOString(), ret: new Date(Date.now() + 9 * 864e5 + 36e5).toISOString() })).status, 400);
+
+  // A deleted vehicle cannot be edited, archived, restored or deleted again, and its rego is not reusable.
+  assert.equal((await admin.put(`/api/vehicles/${v.body.id}`, { rego: 'DEL-01', model: 'x' })).status, 404);
+  assert.equal((await admin.post(`/api/vehicles/${v.body.id}/archive`)).status, 404);
+  assert.equal((await admin.post(`/api/vehicles/${v.body.id}/restore`)).status, 404);
+  assert.equal((await admin.post(`/api/vehicles/${v.body.id}/delete`, { confirm: true })).status, 404);
+  assert.equal((await admin.post('/api/vehicles', { rego: 'del-01', model: 'Again' })).status, 409);
+});
+
+test('fleet admin: archiving a vehicle that has bookings works and keeps them', async () => {
+  const admin = await loggedIn(E('admin'));
+  const used = db.prepare('SELECT vehicle_id AS id FROM bookings LIMIT 1').get().id;
+  const before = db.prepare('SELECT COUNT(*) AS n FROM bookings WHERE vehicle_id = ?').get(used).n;
+  const r = await admin.post(`/api/vehicles/${used}/archive`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.archived, true);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM bookings WHERE vehicle_id = ?').get(used).n, before);
+  assert.equal((await admin.post(`/api/vehicles/${used}/restore`)).body.archived, false);
+});
+
+test('sign-in page config never lists test accounts or the test password', async () => {
+  const r = await client().get('/api/auth/config');
+  assert.equal(r.status, 200);
+  assert.ok(!('testLogins' in r.body));
+  assert.ok(!JSON.stringify(r.body).includes(TEST_PASSWORD));
+});
+
+test('export: vehicles dataset exposes the deleted flag', async () => {
+  const cols = (await exp('/manifest')).body.datasets.find(d => d.name === 'vehicles').columns;
+  assert.ok(cols.includes('deleted') && cols.includes('deleted_at'));
+});
+
 test('alert webhook only accepts public https URLs', async () => {
   const admin = await loggedIn(E('admin'));
   for (const url of ['http://example.com/x', 'https://localhost/x', 'https://10.0.0.5/x', 'not a url']) {

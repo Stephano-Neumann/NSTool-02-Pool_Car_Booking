@@ -19,6 +19,11 @@ async function api(method, path, body) {
   } else if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
+  } else if (method !== 'GET' && method !== 'HEAD') {
+    // Never send a bodyless POST/PUT/DELETE: Azure's gateway layer rejects those with a bare 403
+    // (no JSON body from this app), which is what made Archive and Restore fail in the deployed site.
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = '{}';
   }
   const res = await fetch(path, opts);
   let data = null;
@@ -47,7 +52,7 @@ async function busy(btn, fn) {
 
 // ---------- state ----------
 
-let authConfig = { mode: 'local', appEnv: 'local', testLogins: null };
+let authConfig = { mode: 'local', appEnv: 'local' };
 let session = null; // {type:'admin'|'driver', name, license, email}
 let vehicles = [];
 let bookings = [];
@@ -69,8 +74,8 @@ const isAdmin = () => !!session && session.type === 'admin';
 const isDriver = () => !!session && session.type === 'driver';
 
 function getVehicle(id) { return vehicles.find(v => v.id === id); }
-function activeVehicles() { return vehicles.filter(v => !v.archived); }
-function archivedVehicles() { return vehicles.filter(v => v.archived); }
+function activeVehicles() { return vehicles.filter(v => !v.archived && !v.deleted); }
+function archivedVehicles() { return vehicles.filter(v => v.archived && !v.deleted); }
 function getCompanyVehicle(id) { return companyVehicles.find(v => v.id === id); }
 const regoOf = (id) => { const v = getVehicle(id); return v ? v.rego : '—'; };
 
@@ -145,22 +150,6 @@ function showLogin(message) {
 }
 function sessionExpired() {
   if (session) showLogin('Your session has ended. Please sign in again.');
-}
-
-function renderTestLogins() {
-  const box = $('testLoginsBox');
-  const t = ON_ADMIN_PAGE ? authConfig.testLogins : null;
-  if (!t) { box.style.display = 'none'; return; }
-  box.style.display = 'block';
-  box.innerHTML = '<h3>Test logins</h3><p>Click one to sign in. Password for all: <b>' + escapeHtml(t.password) + '</b></p>' +
-    t.accounts.map(a =>
-      '<button type="button" class="tl-row" data-email="' + escapeHtml(a.email) + '"><span class="tl-email">' + escapeHtml(a.email) +
-      '</span><span class="tl-label">' + escapeHtml(a.label) + '</span></button>').join('');
-  box.querySelectorAll('.tl-row').forEach(btn => btn.addEventListener('click', () => {
-    $('l-email').value = btn.dataset.email;
-    $('l-password').value = t.password;
-    $('loginForm').requestSubmit();
-  }));
 }
 
 function renderEnvBadge() {
@@ -626,12 +615,14 @@ function renderFleetPanel() {
   tbody.innerHTML = list.map(v => {
     const action = fleetTab === 'active'
       ? '<button class="btn-ghost" data-edit="' + v.id + '" style="padding:5px 10px;font-size:12px;">Edit</button>'
-      : '<button class="btn-ghost" data-restore="' + v.id + '" style="padding:5px 10px;font-size:12px;">Restore</button>';
+      : '<button class="btn-ghost" data-restore="' + v.id + '" style="padding:5px 10px;font-size:12px;">Restore</button> ' +
+        '<button class="btn-danger" data-delete="' + v.id + '" style="padding:5px 10px;font-size:12px;">Delete</button>';
     return '<tr class="fleet-row" data-row-vehicle="' + v.id + '"><td>' + plate(v.rego) + '</td><td>' + escapeHtml(v.model) + '</td><td>' + action + '</td></tr>';
   }).join('');
 
   tbody.querySelectorAll('tr.fleet-row').forEach(tr => tr.addEventListener('dblclick', () => openVehicleModal(Number(tr.dataset.rowVehicle))));
   tbody.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); openVehicleModal(Number(btn.dataset.edit)); }));
+  tbody.querySelectorAll('[data-delete]').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); openDeleteVehicle(Number(btn.dataset.delete)); }));
   tbody.querySelectorAll('[data-restore]').forEach(btn => btn.addEventListener('click', (e) => {
     e.stopPropagation();
     busy(btn, async () => {
@@ -986,10 +977,12 @@ function openVehicleModal(vehicleId) {
     $('vehicleModalTitle').textContent = 'Edit vehicle';
     $('v-rego').value = v.rego; $('v-model').value = v.model;
     $('archiveVehicleBtn').style.display = v.archived ? 'none' : 'inline-block';
+    $('deleteVehicleBtn').style.display = 'inline-block';
   } else {
     $('vehicleModalTitle').textContent = 'Add vehicle';
     $('v-rego').value = ''; $('v-model').value = '';
     $('archiveVehicleBtn').style.display = 'none';
+    $('deleteVehicleBtn').style.display = 'none';
   }
   overlayVehicle.classList.add('open');
 }
@@ -1013,6 +1006,36 @@ $('archiveVehicleBtn').addEventListener('click', () => busy($('archiveVehicleBtn
   try { await api('POST', '/api/vehicles/' + editingVehicleId + '/archive'); } catch (err) { showError('vehicleError', err.message); return; }
   overlayVehicle.classList.remove('open');
   fleetTab = 'active';
+  try {
+    await loadVehicles();
+    renderAll();
+  } catch (err) {
+    // The archive itself succeeded; only the refresh failed.
+    alert('The vehicle was archived, but the page could not refresh: ' + err.message + '. Reload the page.');
+  }
+}));
+
+// Delete is a soft delete on the server (a flag, nothing is removed), but the admin is told it is permanent.
+const overlayDeleteVehicle = $('overlayDeleteVehicle');
+let deletingVehicleId = null;
+function openDeleteVehicle(vehicleId) {
+  const v = getVehicle(vehicleId);
+  if (!v) return;
+  deletingVehicleId = vehicleId;
+  clearError('deleteVehicleError');
+  $('deleteVehicleName').textContent = v.rego + ' (' + v.model + ')';
+  overlayVehicle.classList.remove('open');
+  overlayDeleteVehicle.classList.add('open');
+}
+const closeDeleteVehicle = () => { overlayDeleteVehicle.classList.remove('open'); deletingVehicleId = null; };
+$('deleteVehicleBtn').addEventListener('click', () => { if (editingVehicleId) openDeleteVehicle(editingVehicleId); });
+$('closeDeleteVehicle').addEventListener('click', closeDeleteVehicle);
+$('cancelDeleteVehicle').addEventListener('click', closeDeleteVehicle);
+overlayDeleteVehicle.addEventListener('click', (e) => { if (e.target === overlayDeleteVehicle) closeDeleteVehicle(); });
+$('confirmDeleteVehicle').addEventListener('click', () => busy($('confirmDeleteVehicle'), async () => {
+  if (!deletingVehicleId) return;
+  try { await api('POST', '/api/vehicles/' + deletingVehicleId + '/delete', { confirm: true }); } catch (err) { showError('deleteVehicleError', err.message); return; }
+  closeDeleteVehicle();
   await loadVehicles();
   renderAll();
 }));
@@ -1474,7 +1497,6 @@ $('overlayIncidentDetail').addEventListener('click', (e) => { if (e.target === $
 async function init() {
   try { authConfig = await api('GET', '/api/auth/config'); } catch (e) { /* keep defaults */ }
   renderEnvBadge();
-  renderTestLogins();
   try {
     const user = await api('GET', '/api/me');
     await afterSignIn(user);

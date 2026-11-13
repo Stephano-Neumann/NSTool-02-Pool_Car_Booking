@@ -4,7 +4,7 @@ import { triggerBookingAlert } from '../alerts.js';
 import { HttpError, nowIso, text, email, wholeNumber, isoDate } from '../util.js';
 import { audit } from '../audit.js';
 
-const vehicleOut = (v) => ({ id: v.id, rego: v.rego, model: v.model, archived: !!v.archived });
+const vehicleOut = (v) => ({ id: v.id, rego: v.rego, model: v.model, archived: !!v.archived, deleted: !!v.deleted });
 
 // Drivers see their own bookings in full. Everyone else's bookings reach them
 // as anonymous time blocks, so the availability board works without leaking who is driving.
@@ -32,17 +32,22 @@ export function fleetRoutes(db) {
 
   // ---- vehicles ----
   r.get('/vehicles', requireAuth, (req, res) => {
+    // Admins also receive deleted vehicles (flagged) so past bookings can still show their registration.
     const rows = req.user.role === 'admin'
       ? db.prepare('SELECT * FROM vehicles ORDER BY rego').all()
-      : db.prepare('SELECT * FROM vehicles WHERE archived = 0 ORDER BY rego').all();
+      : db.prepare('SELECT * FROM vehicles WHERE archived = 0 AND deleted = 0 ORDER BY rego').all();
     res.json(rows.map(vehicleOut));
   });
 
   function vehicleFields(body, id) {
     const rego = text(body?.rego, 'Registration', { max: 20 });
     const model = text(body?.model, 'Vehicle description', { max: 200 });
-    const dupe = db.prepare('SELECT id FROM vehicles WHERE rego = ? AND id != ?').get(rego, id || 0);
-    if (dupe) throw new HttpError(409, 'That registration is already in the fleet.');
+    const dupe = db.prepare('SELECT id, deleted FROM vehicles WHERE rego = ? AND id != ?').get(rego, id || 0);
+    if (dupe) {
+      throw new HttpError(409, dupe.deleted
+        ? 'That registration belongs to a deleted vehicle. Its records are kept, so the registration cannot be reused.'
+        : 'That registration is already in the fleet.');
+    }
     return { rego, model };
   }
 
@@ -53,9 +58,15 @@ export function fleetRoutes(db) {
     res.status(201).json(vehicleOut(db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id)));
   });
 
-  r.put('/vehicles/:id', requireAdmin, (req, res) => {
-    const v = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+  // A deleted vehicle is treated as gone by every change below; only its records remain.
+  const liveVehicle = (id) => {
+    const v = db.prepare('SELECT * FROM vehicles WHERE id = ? AND deleted = 0').get(id);
     if (!v) throw new HttpError(404, 'Vehicle not found.');
+    return v;
+  };
+
+  r.put('/vehicles/:id', requireAdmin, (req, res) => {
+    const v = liveVehicle(req.params.id);
     const { rego, model } = vehicleFields(req.body, v.id);
     db.prepare('UPDATE vehicles SET rego = ?, model = ? WHERE id = ?').run(rego, model, v.id);
     audit(db, req, 'update', 'vehicle', v.id, rego);
@@ -65,13 +76,23 @@ export function fleetRoutes(db) {
   r.post('/vehicles/:id/archive', requireAdmin, (req, res) => setArchived(req, res, true));
   r.post('/vehicles/:id/restore', requireAdmin, (req, res) => setArchived(req, res, false));
   function setArchived(req, res, archived) {
-    const v = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
-    if (!v) throw new HttpError(404, 'Vehicle not found.');
+    const v = liveVehicle(req.params.id);
     db.prepare('UPDATE vehicles SET archived = ?, archived_at = ? WHERE id = ?')
       .run(archived ? 1 : 0, archived ? nowIso() : null, v.id);
     audit(db, req, archived ? 'archive' : 'restore', 'vehicle', v.id, v.rego);
     res.json(vehicleOut(db.prepare('SELECT * FROM vehicles WHERE id = ?').get(v.id)));
   }
+
+  // Permanent from the admin's point of view, but only a flag in the database: the vehicle row and
+  // every booking, trip log and audit entry that references it stay exactly as they were.
+  r.post('/vehicles/:id/delete', requireAdmin, (req, res) => {
+    if (req.body?.confirm !== true) throw new HttpError(400, 'Confirm that you want to delete this vehicle.');
+    const v = liveVehicle(req.params.id);
+    db.prepare('UPDATE vehicles SET deleted = 1, deleted_at = ?, deleted_by = ? WHERE id = ?')
+      .run(nowIso(), req.user.email || null, v.id);
+    audit(db, req, 'delete', 'vehicle', v.id, v.rego);
+    res.json(vehicleOut(db.prepare('SELECT * FROM vehicles WHERE id = ?').get(v.id)));
+  });
 
   // ---- bookings ----
   r.get('/bookings', requireAuth, (req, res) => {
@@ -87,7 +108,7 @@ export function fleetRoutes(db) {
 
   r.post('/bookings', requireAuth, (req, res) => {
     const b = req.body || {};
-    const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ? AND archived = 0').get(Number(b.vehicleId));
+    const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ? AND archived = 0 AND deleted = 0').get(Number(b.vehicleId));
     if (!vehicle) throw new HttpError(400, 'Choose an available vehicle.');
     const department = text(b.department, 'Department', { max: 100 });
     const costCentre = text(b.costCentre, 'Cost centre', { max: 50 });

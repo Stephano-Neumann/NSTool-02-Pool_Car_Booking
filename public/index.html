@@ -38,7 +38,6 @@
       </div>
       <button type="submit" class="btn-primary landing-btn" id="submitLogin">Sign in</button>
     </form>
-    <div class="test-logins" id="testLoginsBox" style="display:none;"></div>
   </div>
   <div class="env-badge" id="envBadge" style="display:none;"></div>
 </div>
@@ -554,9 +553,28 @@
       </div>
     </div>
     <div class="modal-foot">
+      <button class="btn-danger" id="deleteVehicleBtn" style="display:none;">Delete</button>
       <button class="btn-danger" id="archiveVehicleBtn" style="display:none;margin-right:auto;">Archive</button>
       <button class="btn-ghost" id="cancelVehicle">Cancel</button>
       <button class="btn-primary" id="submitVehicle">Save vehicle</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayDeleteVehicle">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <h2>Delete vehicle?</h2>
+      <button class="modal-close" id="closeDeleteVehicle">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="error-msg" id="deleteVehicleError"></div>
+      <p style="margin:0 0 10px;"><b>Warning: this is permanent.</b> <span id="deleteVehicleName"></span> will be removed from the fleet, the booking board and every list, and it cannot be restored from the app.</p>
+      <p style="margin:0;font-size:13px;color:var(--ink-soft);">Its past bookings, trip logs and audit history are kept in the records. If you only want to take it out of use for now, use Archive instead.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="cancelDeleteVehicle">Cancel</button>
+      <button class="btn-danger" id="confirmDeleteVehicle">Delete permanently</button>
     </div>
   </div>
 </div>

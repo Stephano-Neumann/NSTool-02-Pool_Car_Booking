@@ -36,3 +36,11 @@ Pre-deployment fixes from the Azure deployment guide.
 - Original single-file tool removed from the repository; `resources/` is git-ignored.
 - Added `.github/dependabot.yml` (npm, GitHub Actions, Docker; weekly).
 - Persistence test on staging: bookings survive a restart, a stop and start, and a new revision deployed from a merged pull request.
+
+## 1.2.0
+
+- Admins can delete a pool vehicle from the edit window or the Archived tab. A warning popup says it is permanent; in the database it is only a `deleted` flag (migration 003), so the vehicle row and every booking, trip log and audit entry are kept. Archive and Restore are unchanged.
+- Deleted vehicles disappear from the fleet lists, the board and booking; their registration cannot be reused. The Data Export API vehicles dataset gains `deleted`, `deleted_at`, `deleted_by`.
+- Sign-in page is identical in every environment: the clickable test-login list is gone and `/api/auth/config` no longer returns test accounts or the test password.
+- Archive and Restore failed with a bare `Request failed (403)` on the deployed site: they were the only calls sent without a body, which the Azure layer in front of the app rejects. Every non-GET request now sends a JSON body.
+- Archive: the page now reports a failed refresh after a successful archive instead of failing silently; new test covers archiving a vehicle that has bookings.
