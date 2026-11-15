@@ -53,3 +53,8 @@ Pre-deployment fixes from the Azure deployment guide.
 - Role value matching is exact and case-sensitive (`Admin` or `carpool.admin` no longer grant anything). Test environments (`AUTH_MODE=local`) are unchanged.
 - Tests: both roles, both together, neither, old role names, array-style roles claim, promotion, demotion and removal between requests, no account for no-role users.
 
+## 1.4.0
+
+- Admins now sign in to the same pages as a regular user (`/`: Company Car, Pool Car Booking, Incident Management). An "Admin page" button on the menu, the session bar and the Company Car and Incident screens opens the admin console at `/nsadmin`, and a "User pages" button there brings them back, as often as they like.
+- In the user view an admin books for themselves like any other user (own name and licence, no on-behalf fields) and sees only their own incident reports. The admin console still books on behalf of someone else.
+- API: `POST /api/bookings` accepts `asSelf: true` (admin books as themselves); `GET /api/incidents?mine=1` returns only the caller's reports. Neither widens access; the role check is unchanged on every admin route.

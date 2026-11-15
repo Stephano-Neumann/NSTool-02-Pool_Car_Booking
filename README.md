@@ -47,6 +47,8 @@ Test environments (`AUTH_MODE=local`) keep using the role stored on each test lo
 | Admin | Approve or decline bookings, cancel bookings, manage the fleet, company vehicles and allocations, alert recipients and webhook, policy PDF, see all drivers and incident reports | — |
 | Driver | See the availability board, request bookings, log their own trips, complete their own company car checks, submit and read their own incident reports | See other drivers' names or details, see admin panels, approve anything |
 
+**Admin and user views.** An admin signs in to the same pages as a driver (`/`) and uses the **Admin page** button to open the admin console at `/nsadmin`; **User pages** there brings them back. In the user view an admin books for themselves (their own licence is needed, set under My profile) and sees only their own incident reports. The switch is a convenience only: access control is enforced on the server for every request.
+
 ## Configuration
 
 All settings are environment variables. See [.env.example](.env.example).

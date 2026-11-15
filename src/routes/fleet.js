@@ -119,8 +119,9 @@ export function fleetRoutes(db) {
     if (new Date(ret) <= new Date(pickup)) throw new HttpError(400, 'Return time must be after pick up time.');
 
     let driverName, licence, mail, userId;
-    if (req.user.role === 'admin') {
-      // Admins can book on behalf of someone who isn't signed in.
+    if (req.user.role === 'admin' && b.asSelf !== true) {
+      // Admins can book on behalf of someone who isn't signed in. With asSelf (the user view)
+      // an admin books for themselves, exactly like a regular user.
       driverName = text(b.driverName, 'Driver name', { max: 120 });
       licence = text(b.license, "Driver's licence #", { max: 40 });
       mail = b.email ? email(b.email) : null;
