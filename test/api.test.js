@@ -241,6 +241,41 @@ test('incidents: drivers see only their own, admin sees all', async () => {
   assert.equal((await (await loggedIn(E('admin'))).get('/api/incidents')).body.length, 3);
 });
 
+test('admin in the user view: books for themselves, sees only their own incidents; default stays on-behalf', async () => {
+  const admin = await loggedIn(E('admin'));
+  const v = (await admin.get('/api/vehicles')).body[3];
+  const pickup = new Date(Date.now() + 40 * 86400_000).toISOString();
+  const ret = new Date(Date.now() + 40 * 86400_000 + 3 * 3600_000).toISOString();
+  const payload = { vehicleId: v.id, department: 'IT', costCentre: 'CC-9', use: 'Business', pickup, ret };
+
+  // Self booking needs the admin's own licence, just like a regular user.
+  assert.equal((await admin.post('/api/bookings', { ...payload, asSelf: true })).status, 400);
+  assert.equal((await admin.put('/api/me', { name: 'Alex Admin', licence: 'ADM-123' })).status, 200);
+  const mine = await admin.post('/api/bookings', { ...payload, asSelf: true, driverName: 'Ignored', license: 'Ignored' });
+  assert.equal(mine.status, 201);
+  assert.equal(mine.body.driverName, 'Alex Admin');
+  assert.equal(mine.body.license, 'ADM-123');
+  assert.equal(mine.body.mine, true);
+
+  // Without asSelf the admin console still books on behalf of someone else.
+  const later = { ...payload, pickup: new Date(Date.now() + 41 * 86400_000).toISOString(), ret: new Date(Date.now() + 41 * 86400_000 + 3600_000).toISOString() };
+  const onBehalf = await admin.post('/api/bookings', { ...later, driverName: 'Visitor Vic', license: 'V-1' });
+  assert.equal(onBehalf.status, 201);
+  assert.equal(onBehalf.body.driverName, 'Visitor Vic');
+  assert.equal(onBehalf.body.mine, false);
+
+  // asSelf never gives a regular user anything extra: they always book as themselves.
+  const pool = await loggedIn(E('driver.pool'));
+  const own = await pool.post('/api/bookings', { ...payload, vehicleId: (await pool.get('/api/vehicles')).body[2].id, asSelf: false, driverName: 'Someone Else' });
+  assert.equal(own.status, 201);
+  assert.equal(own.body.driverName, 'Paul Pool');
+
+  // Incidents: the user view lists only the admin's own reports.
+  assert.equal((await admin.get('/api/incidents?mine=1')).body.length, 0);
+  assert.ok((await admin.get('/api/incidents')).body.length >= 3);
+  assert.equal((await pool.get('/api/incidents?mine=1')).body.length, 0);
+});
+
 test('fleet admin: add, duplicate rego, archive, restore', async () => {
   const admin = await loggedIn(E('admin'));
   const v = await admin.post('/api/vehicles', { rego: 'TEST-99', model: 'Test car' });

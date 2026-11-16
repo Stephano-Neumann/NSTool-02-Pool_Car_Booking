@@ -25,7 +25,8 @@ export function incidentRoutes(db) {
   const r = Router();
 
   r.get('/incidents', requireAuth, (req, res) => {
-    const rows = req.user.role === 'admin'
+    // ?mine=1 gives admins the same own-reports-only list a regular user gets (the user view).
+    const rows = req.user.role === 'admin' && req.query.mine !== '1'
       ? db.prepare('SELECT * FROM incidents ORDER BY submitted_at DESC').all()
       : db.prepare('SELECT * FROM incidents WHERE user_id = ? ORDER BY submitted_at DESC').all(req.user.id);
     res.json(rows.map(incidentOut));

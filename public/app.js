@@ -73,8 +73,11 @@ let fleetTab = 'active';
 let editingVehicleId = null;
 let loginIntent = 'pool'; // 'pool' | 'companyCar' | 'incident'
 
-const isAdmin = () => !!session && session.type === 'admin';
-const isDriver = () => !!session && session.type === 'driver';
+// An admin account can use the app two ways: the admin console on /nsadmin, and the same
+// pages a regular user gets on /. `isAdminAccount` is the account; `isAdmin` is the view.
+const isAdminAccount = () => !!session && session.type === 'admin';
+const isAdmin = () => isAdminAccount() && ON_ADMIN_PAGE;
+const isDriver = () => !!session && (session.type === 'driver' || (session.type === 'admin' && !ON_ADMIN_PAGE));
 
 function getVehicle(id) { return vehicles.find(v => v.id === id); }
 function activeVehicles() { return vehicles.filter(v => !v.archived && !v.deleted); }
@@ -134,6 +137,7 @@ function showScreen(name) {
 function showApp() { showScreen('appContainer'); }
 function showLanding() {
   $('landingWelcome').innerHTML = 'Signed in as <b>' + escapeHtml(session.name) + '</b>';
+  for (const id of ['landingAdminBtn', 'companyCarSwitchBtn', 'incidentSwitchBtn']) $(id).style.display = isAdminAccount() ? '' : 'none';
   showScreen('landingScreen');
 }
 
@@ -204,10 +208,10 @@ function applyUser(user) {
 async function afterSignIn(user) {
   applyUser(user);
   await Promise.all([loadVehicles(), loadBookings(), loadPolicyMeta()]);
-  if (isDriver() && !user.profileComplete) {
+  if (session.type === 'driver' && !user.profileComplete) {
     await requireProfile();
   }
-  if (isDriver() && !user.policyAcked) {
+  if (session.type === 'driver' && !user.policyAcked) {
     openPolicyModal();
     return;
   }
@@ -225,6 +229,9 @@ function enterHome() {
 }
 
 // ---------- data loading ----------
+
+// In the user view an admin only sees their own incident reports, like any other user.
+function incidentsUrl() { return isAdminAccount() && !ON_ADMIN_PAGE ? '/api/incidents?mine=1' : '/api/incidents'; }
 
 async function loadVehicles() { vehicles = await api('GET', '/api/vehicles'); populateVehicleSelect(); }
 async function loadBookings() { bookings = await api('GET', '/api/bookings'); }
@@ -320,7 +327,7 @@ $('companyCarBtn').addEventListener('click', async () => {
 $('incidentMgmtBtn').addEventListener('click', async () => {
   loginIntent = 'incident';
   showScreen('incidentContainer');
-  incidentReports = await api('GET', '/api/incidents');
+  incidentReports = await api('GET', incidentsUrl());
   renderIncidentApp();
 });
 $('landingProfileBtn').addEventListener('click', () => openProfileModal(false));
@@ -330,6 +337,12 @@ $('logoutBtn').addEventListener('click', signOut);
 $('companyCarLogoutBtn').addEventListener('click', signOut);
 $('incidentLogoutBtn').addEventListener('click', signOut);
 $('menuBtn').addEventListener('click', showLanding);
+// Navigating (not just toggling) keeps the URL honest and re-runs the server's role check.
+const switchView = () => { window.location.href = ON_ADMIN_PAGE ? '/' : '/nsadmin'; };
+$('switchViewBtn').addEventListener('click', switchView);
+$('landingAdminBtn').addEventListener('click', switchView);
+$('companyCarSwitchBtn').addEventListener('click', switchView);
+$('incidentSwitchBtn').addEventListener('click', switchView);
 $('companyCarMenuBtn').addEventListener('click', showLanding);
 $('incidentMenuBtn').addEventListener('click', showLanding);
 $('passwordBtn').addEventListener('click', openPasswordModal);
@@ -522,8 +535,12 @@ function updateSessionBar() {
   const bar = $('sessionBar');
   if (!session) { bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
-  $('sessionName').textContent = isAdmin() ? session.name + ' (Admin)' : session.name + ' (Driver)';
+  $('sessionName').textContent = isAdmin() ? session.name + ' (Admin)' : isAdminAccount() ? session.name + ' (Admin, user view)' : session.name + ' (Driver)';
   $('menuBtn').style.display = isDriver() ? '' : 'none';
+  // Admin accounts can move between the admin console and the regular user pages at will.
+  const switchBtn = $('switchViewBtn');
+  switchBtn.style.display = isAdminAccount() ? '' : 'none';
+  switchBtn.textContent = ON_ADMIN_PAGE ? 'User pages' : 'Admin page';
   $('passwordBtn').style.display = authConfig.mode === 'local' ? '' : 'none';
 }
 
@@ -835,6 +852,7 @@ function resetForm() {
 }
 
 function openModal(vehicleId, date) {
+  if (isDriver() && !session.license) { openProfileModal(false); return; }
   resetForm();
   const identityNote = $('bookingIdentityNote');
   if (isDriver()) {
@@ -874,6 +892,8 @@ $('submitBooking').addEventListener('click', () => busy($('submitBooking'), asyn
     driverName: $('f-name').value.trim(), license: $('f-license').value.trim(), email: $('f-email').value.trim(),
     department: $('f-dept').value.trim(), costCentre: $('f-cc').value.trim(),
     use: document.querySelector('input[name="use"]:checked').value,
+    // An admin in the user view books for themselves, exactly like a regular user.
+    asSelf: isDriver() && isAdminAccount(),
   };
   const pickupDate = $('f-pickup-date').value, pickupTime = $('f-pickup-time').value;
   const returnDate = $('f-return-date').value, returnTime = $('f-return-time').value;
@@ -1451,7 +1471,7 @@ function renderIncidentForm() {
           rego: val('tp-rego'), vehicle: val('tp-vehicle'), insurer: val('tp-insurer'), policy: val('tp-policy'),
         },
       });
-      incidentReports = await api('GET', '/api/incidents');
+      incidentReports = await api('GET', incidentsUrl());
     } catch (err) { showError('incidentError', err.message); return; }
     incidentJustSubmitted = true;
     renderIncidentApp();

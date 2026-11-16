@@ -74,7 +74,7 @@ User object: `{id, email, name, role, licence, policyAcked, profileComplete}`.
 | `POST /api/vehicles/:id/restore` | admin | Reverses archive |
 | `POST /api/vehicles/:id/delete` | admin | Body `{confirm: true}`. Soft delete: sets `deleted`, `deleted_at`, `deleted_by`; the row and all bookings and history are kept. Not reversible from the app; 404 on a deleted vehicle |
 | `GET /api/bookings` | any | Drivers get their own bookings in full and everyone else's as anonymous blocks (see below). Admins get everything. Declined bookings are visible only to their owner and admins |
-| `POST /api/bookings` | any | Create a booking, status `pending` |
+| `POST /api/bookings` | any | Create a booking, status `pending`. Admins book on behalf of someone (`driverName`, `license`, `email`) unless the body has `asSelf: true`, which books as the admin themselves using their own profile |
 | `POST /api/bookings/:id/review` | admin | Body `{decision: "approved" \| "declined"}`. 409 if already reviewed |
 | `DELETE /api/bookings/:id` | admin | Cancel and remove |
 | `PUT /api/bookings/:id/trip` | owner | Log a trip. Only when the booking is `approved` |
@@ -126,7 +126,7 @@ Prestart `items` is an object of booleans (`true` = OK) with exactly these keys:
 
 | Method and path | Who | Purpose |
 |---|---|---|
-| `GET /api/incidents` | any | Admins see all reports, drivers see only their own. Newest first |
+| `GET /api/incidents` | any | Admins see all reports, drivers see only their own; `?mine=1` gives admins only their own too (user view). Newest first |
 | `POST /api/incidents` | any | Submit a report |
 
 Create body: `{description (required), weather, weatherOther, roadSurface, speedLimit, visibility, thirdParty}`. Allowed values:
