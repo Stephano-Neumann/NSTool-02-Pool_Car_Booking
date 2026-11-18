@@ -139,7 +139,17 @@ Create body: `{description (required), weather, weatherOther, roadSurface, speed
 
 Blank values are allowed for the choice fields; anything else must match the lists above.
 
-### 3.6 Example
+### 3.6 Usage analytics
+
+| Method and path | Who | Purpose |
+|---|---|---|
+| `POST /api/usage/ping` | any | The browser reports which screen is open and that the user is still there. Returns 204 |
+
+Body: `{sessionKey, view, page, end}`. `sessionKey` is a random id per visit (16–64 letters, digits or `-`) that the browser generates and keeps per tab and user. `view` is one of `menu`, `pool-booking`, `company-car`, `incidents`, `admin`. `page` is `user` (`/`) or `admin` (`/nsadmin`). `end: true` marks the page as hidden or closed. The browser sends it when a screen opens, every 60 seconds while the page is visible, and when the page is hidden. Only gaps of up to 150 seconds between pings count as time in the app. 409 if the `sessionKey` belongs to another user.
+
+Every write (POST, PUT, PATCH, DELETE) under `/api` is also recorded by the server as an action, with its HTTP status. Sending the header `X-Usage-Session: <sessionKey>` links the action to the visit. Reads (GET) are not recorded. The data is exported as `usage_sessions` and `usage_events` (section 4).
+
+### 3.7 Example
 
 ```bash
 # Sign in (local mode) and keep the cookie
@@ -173,7 +183,16 @@ Read-only, same contract on every Neumann platform, used to load data into Fabri
 
 **Response:** `{platform, dataset, extractedAt, count, hasMore, nextCursor, data:[…]}`. Keep requesting with `cursor=nextCursor` while `hasMore` is true; `nextCursor` is `null` on the last page.
 
-**Datasets:** `users, vehicles, bookings, admin_profiles, alerts_log, company_vehicles, company_allocations, prestarts, km_log, incidents, policy_document, audit_log, deleted_records`.
+**Datasets:** `users, vehicles, bookings, admin_profiles, alerts_log, company_vehicles, company_allocations, prestarts, km_log, incidents, policy_document, audit_log, deleted_records, usage_sessions, usage_events`.
+
+**App usage datasets.** Both carry `user_name` and `user_email` as they were at the time; join to `users` on `user_id` for current details.
+
+| Dataset | One row per | Columns | Watermark |
+|---|---|---|---|
+| `usage_sessions` | Visit (a browser tab, from first screen to leaving) | `id, user_id, user_name, user_email, role` (account type at the time: `admin` or `driver`), `page` (`user` or `admin`), `device` (`desktop`, `mobile`, `tablet`, `other`), `started_at, last_seen_at, ended_at` (null while open), `active_seconds` (time with the page visible), `views, actions` (counts), `current_view, updated_at` | `updated_at` |
+| `usage_events` | Screen opened (`kind = view`, `name` = the screen) or write made (`kind = action`, `name` like `POST /api/bookings/:id/review`, plus `status` and `duration_ms`) | `id, at, user_id, user_name, user_email, usage_session_id` (null if not linked to a visit, e.g. the sign-in itself), `role, kind, name, status, duration_ms` | `at` |
+
+Usage is kept in the app for `USAGE_RETENTION_DAYS` (default 365) and then purged without tombstones, so the lake keeps the history it has loaded.
 
 - Rows are raw table columns in snake_case. JSON held in a column (`items`, `third_party`, `recipients`) arrives as a string.
 - `deleted_records` lists removed rows: `{id, entity, entity_id, deleted_at}`.

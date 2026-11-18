@@ -579,3 +579,174 @@ test('export: logging in does not count as a change to a user', async () => {
   await loggedIn(E('driver.nocar'));
   assert.equal((await exp(`/users?updatedSince=${t0}`)).body.count, 0);
 });
+
+// ---- App usage analytics ----
+const { purgeUsage, actionName, deviceFromUserAgent } = await import('../src/usage.js');
+const settle = () => new Promise(r => setTimeout(r, 30)); // action events are written when the response finishes
+const ping = (c, body, headers = {}) => c.raw('POST', '/api/usage/ping', body, headers);
+const usageSession = (key) => db.prepare('SELECT * FROM usage_sessions WHERE session_key = ?').get(key);
+
+test('usage: ping needs a signed-in user, the CSRF header and valid input', async () => {
+  const key = 'test-usage-anon-0001';
+  assert.equal((await ping(client(), { sessionKey: key, view: 'menu' })).status, 401);
+  const pool = await loggedIn(E('driver.pool'));
+  assert.equal((await ping(pool, { sessionKey: key, view: 'menu' }, { 'X-Requested-By': '' })).status, 403);
+  assert.equal((await ping(pool, { view: 'menu' })).status, 400, 'sessionKey required');
+  assert.equal((await ping(pool, { sessionKey: 'short', view: 'menu' })).status, 400);
+  assert.equal((await ping(pool, { sessionKey: key, view: 'hacker-page' })).status, 400);
+  assert.equal((await ping(pool, { sessionKey: key, view: 'menu', page: 'other' })).status, 400);
+  assert.equal(usageSession(key), undefined);
+});
+
+test('usage: a visit records account type, screens, active time and the end', async () => {
+  const key = 'test-usage-visit-0001';
+  const pool = await loggedIn(E('driver.pool'));
+  const iphone = { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148' };
+  assert.equal((await ping(pool, { sessionKey: key, view: 'menu' }, iphone)).status, 204);
+  let s = usageSession(key);
+  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(E('driver.pool'));
+  assert.equal(s.user_id, user.id);
+  assert.equal(s.user_name, 'Paul Pool');
+  assert.equal(s.user_email, E('driver.pool'));
+  assert.equal(s.role, 'driver');
+  assert.equal(s.page, 'user');
+  assert.equal(s.device, 'mobile');
+  assert.equal(s.views, 1);
+  assert.equal(s.active_seconds, 0);
+
+  // 40 s later, still on the menu: time counts, no new screen.
+  db.prepare('UPDATE usage_sessions SET last_seen_at = ? WHERE id = ?').run(new Date(Date.now() - 40_000).toISOString(), s.id);
+  await ping(pool, { sessionKey: key, view: 'menu' });
+  s = usageSession(key);
+  assert.ok(s.active_seconds >= 39 && s.active_seconds <= 41, `active ${s.active_seconds}`);
+  assert.equal(s.views, 1);
+
+  // Opens the booking screen.
+  await ping(pool, { sessionKey: key, view: 'pool-booking' });
+  s = usageSession(key);
+  assert.equal(s.views, 2);
+  assert.equal(s.current_view, 'pool-booking');
+
+  // An hour away (tab hidden, laptop asleep) adds no time.
+  const before = s.active_seconds;
+  db.prepare('UPDATE usage_sessions SET last_seen_at = ? WHERE id = ?').run(new Date(Date.now() - 3600_000).toISOString(), s.id);
+  await ping(pool, { sessionKey: key, view: 'pool-booking' });
+  assert.equal(usageSession(key).active_seconds, before);
+
+  // Leaving sets ended_at; coming back clears it.
+  await ping(pool, { sessionKey: key, view: 'pool-booking', end: true });
+  assert.ok(usageSession(key).ended_at);
+  await ping(pool, { sessionKey: key, view: 'pool-booking' });
+  assert.equal(usageSession(key).ended_at, null);
+
+  const views = db.prepare("SELECT name, role FROM usage_events WHERE usage_session_id = ? AND kind = 'view' ORDER BY id").all(s.id);
+  assert.deepEqual(views, [{ name: 'menu', role: 'driver' }, { name: 'pool-booking', role: 'driver' }]);
+});
+
+test('usage: writes are recorded server-side as actions, linked to the visit, failures included', async () => {
+  const key = 'test-usage-actions-01';
+  const pool = await loggedIn(E('driver.pool'));
+  await ping(pool, { sessionKey: key, view: 'pool-booking' });
+  const s = usageSession(key);
+  const v = (await pool.get('/api/vehicles')).body[3];
+  const pickup = new Date(Date.now() + 60 * 86400_000).toISOString();
+  const ret = new Date(Date.now() + 60 * 86400_000 + 3600_000).toISOString();
+  const payload = { vehicleId: v.id, department: 'IT', costCentre: 'CC-9', use: 'Business', pickup, ret };
+  const hdr = { 'X-Usage-Session': key };
+  assert.equal((await pool.raw('POST', '/api/bookings', payload, hdr)).status, 201);
+  assert.equal((await pool.raw('POST', '/api/bookings', payload, hdr)).status, 409);
+  await settle();
+
+  const actions = db.prepare("SELECT * FROM usage_events WHERE usage_session_id = ? AND kind = 'action' ORDER BY id").all(s.id);
+  assert.deepEqual(actions.map(a => [a.name, a.status, a.role]), [['POST /api/bookings', 201, 'driver'], ['POST /api/bookings', 409, 'driver']]);
+  assert.ok(actions.every(a => a.user_name === 'Paul Pool' && a.user_email === E('driver.pool')));
+  assert.ok(actions.every(a => Number.isInteger(a.duration_ms)));
+  assert.equal(usageSession(key).actions, 2);
+
+  // Reads are not actions; the ping itself is not an action.
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM usage_events WHERE name LIKE 'GET %' OR name LIKE '%/usage/ping'").get().n, 0);
+});
+
+test('usage: sign-in is recorded with the account type; ids in paths are generalised', async () => {
+  const t0 = new Date().toISOString();
+  await loggedIn(E('admin'));
+  await settle();
+  const admin = db.prepare('SELECT id FROM users WHERE email = ?').get(E('admin'));
+  const ev = db.prepare("SELECT * FROM usage_events WHERE user_id = ? AND name = 'POST /api/auth/login' AND at >= ?").get(admin.id, t0);
+  assert.equal(ev.role, 'admin');
+  assert.equal(ev.status, 200);
+  assert.equal(actionName('PUT', '/bookings/12/trip'), 'PUT /api/bookings/:id/trip');
+  assert.equal(deviceFromUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'), 'desktop');
+  assert.equal(deviceFromUserAgent('Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)'), 'tablet');
+});
+
+test('usage: one user cannot write to another user\'s visit', async () => {
+  const key = 'test-usage-owner-0001';
+  const pool = await loggedIn(E('driver.pool'));
+  const admin = await loggedIn(E('admin'));
+  assert.equal((await ping(pool, { sessionKey: key, view: 'menu' })).status, 204);
+  assert.equal((await ping(admin, { sessionKey: key, view: 'admin', page: 'admin' })).status, 409);
+  assert.equal(usageSession(key).views, 1);
+  // An action carrying someone else's visit key is still recorded, but not linked to that visit.
+  await admin.raw('POST', '/api/admin-profiles', { name: 'Usage Test', email: 'usage.test@neumannsteel.test' }, { 'X-Usage-Session': key });
+  await settle();
+  assert.equal(usageSession(key).actions, 0);
+  const ev = db.prepare("SELECT usage_session_id FROM usage_events WHERE name = 'POST /api/admin-profiles' ORDER BY id DESC").get();
+  assert.equal(ev.usage_session_id, null);
+});
+
+test('usage: old records are purged after the retention period', () => {
+  const user = db.prepare('SELECT id FROM users LIMIT 1').get();
+  const old = new Date(Date.now() - 400 * 86400_000).toISOString();
+  const sid = db.prepare(`INSERT INTO usage_sessions (session_key, user_id, role, page, device, started_at, last_seen_at, updated_at)
+                          VALUES ('test-usage-old-000001', ?, 'driver', 'user', 'desktop', ?, ?, ?)`).run(user.id, old, old, old).lastInsertRowid;
+  db.prepare("INSERT INTO usage_events (at, user_id, usage_session_id, role, kind, name) VALUES (?, ?, ?, 'driver', 'view', 'menu')").run(old, user.id, sid);
+  const recent = db.prepare('SELECT COUNT(*) AS n FROM usage_events WHERE at > ?').get(old).n;
+  purgeUsage(db, 365);
+  assert.equal(usageSession('test-usage-old-000001'), undefined);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM usage_events WHERE at <= ?').get(old).n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM usage_events WHERE at > ?').get(old).n, recent, 'recent usage kept');
+});
+
+test('usage: retention must be a positive whole number of days', () => {
+  const saved = config.usageRetentionDays;
+  try {
+    config.usageRetentionDays = 0;
+    assert.throws(() => assertSafeConfig(), /USAGE_RETENTION_DAYS/);
+    config.usageRetentionDays = NaN;
+    assert.throws(() => assertSafeConfig(), /USAGE_RETENTION_DAYS/);
+  } finally {
+    config.usageRetentionDays = saved;
+  }
+});
+
+test('export: usage datasets are listed, flagged personal, load incrementally and hide the visit key', async () => {
+  const { body } = await exp('/manifest');
+  const sessions = body.datasets.find(d => d.name === 'usage_sessions');
+  const events = body.datasets.find(d => d.name === 'usage_events');
+  assert.ok(sessions && events);
+  assert.equal(sessions.containsPersonalData, true);
+  assert.equal(events.containsPersonalData, true);
+  assert.equal(sessions.watermarkColumn, 'updated_at');
+  assert.equal(events.watermarkColumn, 'at');
+  assert.ok(!sessions.columns.includes('session_key'));
+  for (const c of ['user_id', 'user_name', 'user_email', 'role', 'started_at', 'last_seen_at', 'active_seconds', 'views', 'actions']) assert.ok(sessions.columns.includes(c), c);
+  for (const c of ['user_id', 'user_name', 'user_email', 'role', 'kind', 'name']) assert.ok(events.columns.includes(c), c);
+  assert.ok(sessions.rowCount > 0 && events.rowCount > 0);
+
+  const rows = (await exp('/usage_sessions')).body.data;
+  assert.ok(rows.length > 0 && rows.every(r => !('session_key' in r)));
+
+  const t0 = (await exp('/manifest')).body.serverTime;
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal((await exp(`/usage_events?updatedSince=${t0}`)).body.count, 0);
+  const pool = await loggedIn(E('driver.pool'));
+  await ping(pool, { sessionKey: 'test-usage-export-001', view: 'company-car' });
+  await settle();
+  const changedSessions = (await exp(`/usage_sessions?updatedSince=${t0}`)).body.data;
+  assert.equal(changedSessions.length, 1);
+  assert.equal(changedSessions[0].current_view, 'company-car');
+  const newEvents = (await exp(`/usage_events?updatedSince=${t0}`)).body.data;
+  assert.ok(newEvents.some(e => e.kind === 'view' && e.name === 'company-car'));
+  assert.ok(newEvents.some(e => e.kind === 'action' && e.name === 'POST /api/auth/login'));
+});

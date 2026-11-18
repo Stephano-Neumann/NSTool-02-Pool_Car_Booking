@@ -63,10 +63,18 @@ All settings are environment variables. See [.env.example](.env.example).
 | `ALLOWED_EMAIL_DOMAINS` | empty | Gateway mode: comma-separated email domains allowed to sign in (e.g. `neumann.com.au`); anyone else is treated as signed out and no user is created. Empty = no restriction |
 | `ALERT_WEBHOOK_URL` | empty | Power Automate HTTP trigger for booking alert emails (admins can also set it in the app) |
 | `DATA_API_KEY` / `PLATFORM_NAME` | empty / `car-booking` | Key for the read-only Data Export API used by Fabric (empty = disabled), and the name used in lake tables |
+| `USAGE_RETENTION_DAYS` | `365` | How long app usage analytics stay in the app database before they are purged |
 
 ## Data for Fabric
 
 The app exposes a read-only Data Export API (`/api/export/v1`) so all platform data can be loaded into the lakehouse. See [docs/FABRIC-INGESTION.md](docs/FABRIC-INGESTION.md) and [fabric/ingest_platforms.py](fabric/ingest_platforms.py). Local test key: `nst-test-data-api-key`.
+
+**App usage** is recorded for analysis and exported as `usage_sessions` (one row per visit: who (name and email), account type, device, when, active time, screens and actions) and `usage_events` (each screen opened and each change made, with its result). Columns: [docs/API.md](docs/API.md) section 4. It is personal data about how each person uses the app; treat the lake tables as confidential.
+
+```bash
+curl -H "Authorization: Bearer nst-test-data-api-key" "localhost:8080/api/export/v1/usage_sessions?limit=5"
+curl -H "Authorization: Bearer nst-test-data-api-key" "localhost:8080/api/export/v1/usage_events?limit=5"
+```
 
 ## Other commands
 
