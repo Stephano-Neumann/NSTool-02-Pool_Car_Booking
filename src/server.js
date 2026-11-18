@@ -3,6 +3,7 @@ import { openDb } from './db.js';
 import { createApp } from './app.js';
 import { seedDefaultFleet, seedTestData } from './seed.js';
 import { log } from './util.js';
+import { purgeUsage } from './usage.js';
 
 assertSafeConfig();
 
@@ -11,7 +12,11 @@ seedDefaultFleet(db);
 await seedTestData(db);
 
 // Expired sessions are only ever read through a filter, so a periodic sweep is enough.
-const sweep = () => db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+// Usage analytics older than USAGE_RETENTION_DAYS go in the same sweep.
+const sweep = () => {
+  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+  purgeUsage(db, config.usageRetentionDays);
+};
 sweep();
 setInterval(sweep, 3600_000).unref();
 

@@ -19,6 +19,7 @@ export const config = {
   platformName: env.PLATFORM_NAME || 'car-booking',
   dataApiKey: env.DATA_API_KEY || '',          // Data Export API key (Fabric). Empty = export disabled
   dataApiKeyNext: env.DATA_API_KEY_NEXT || '', // optional second key, for zero-downtime rotation
+  usageRetentionDays: Number(env.USAGE_RETENTION_DAYS || 365), // app usage analytics kept this long in the app database
 };
 
 // Gateway mode: the Entra app role values (App registration > App roles) that decide access.
@@ -29,7 +30,10 @@ export const ENTRA_ROLES = Object.freeze({ user: 'CarPool.User', admin: 'CarPool
 export const TEST_PASSWORD = 'neumansteel123';
 
 export function assertSafeConfig() {
-  const { appEnv, authMode, seedTestData, allowLocalAuthInProd } = config;
+  const { appEnv, authMode, seedTestData, allowLocalAuthInProd, usageRetentionDays } = config;
+  if (!Number.isInteger(usageRetentionDays) || usageRetentionDays < 1) {
+    throw new Error(`USAGE_RETENTION_DAYS must be a whole number of days, 1 or more (got "${env.USAGE_RETENTION_DAYS}")`);
+  }
   if (!['local', 'staging', 'production'].includes(appEnv)) {
     throw new Error(`APP_ENV must be local, staging or production (got "${appEnv}")`);
   }

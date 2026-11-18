@@ -13,6 +13,7 @@ const pad = (n) => String(n).padStart(2, '0');
 
 async function api(method, path, body) {
   const opts = { method, credentials: 'same-origin', headers: { 'X-Requested-By': 'nst-app' } };
+  if (usageKey) opts.headers['X-Usage-Session'] = usageKey; // links writes to this visit in the usage log
   if (body instanceof Blob) {
     opts.body = body;
     opts.headers['Content-Type'] = body.type;
@@ -72,6 +73,8 @@ let weekStart = startOfWeek(new Date());
 let fleetTab = 'active';
 let editingVehicleId = null;
 let loginIntent = 'pool'; // 'pool' | 'companyCar' | 'incident'
+let usageKey = null;  // id of this visit for usage analytics (one per tab and user)
+let usageView = null; // screen currently shown, as named in the usage log
 
 // An admin account can use the app two ways: the admin console on /nsadmin, and the same
 // pages a regular user gets on /. `isAdminAccount` is the account; `isAdmin` is the view.
@@ -133,6 +136,7 @@ const SCREENS = { loadingScreen: 'flex', loginScreen: 'flex', landingScreen: 'fl
 function showScreen(name) {
   for (const [id, display] of Object.entries(SCREENS)) $(id).style.display = id === name ? display : 'none';
   window.scrollTo(0, 0);
+  trackView(name);
 }
 function showApp() { showScreen('appContainer'); }
 function showLanding() {
@@ -194,16 +198,65 @@ $('loginForm').addEventListener('submit', async (e) => {
 });
 
 async function signOut() {
+  usagePing(true);
   if (authConfig.mode === 'gateway') { window.location.href = '/.auth/logout?post_logout_redirect_uri=/'; return; }
   try { await api('POST', '/api/auth/logout'); } catch (e) { /* already signed out */ }
   vehicles = []; bookings = []; drivers = []; incidentReports = []; companyCarMe = null;
   $('l-email').value = '';
+  usageKey = null; usageView = null;
+  try { sessionStorage.removeItem('nst_usage'); } catch (e) { /* storage blocked */ }
   showLogin();
 }
 
 function applyUser(user) {
   session = { type: user.role, name: user.name, license: user.licence, email: user.email, policyAcked: user.policyAcked };
+  startUsage(user.id);
 }
+
+// ---------- usage analytics ----------
+// Tells the server which screen is open and, once a minute while the page is visible, that the user is
+// still here. The server turns that into time spent in the app (src/usage.js). Writes are recorded by
+// the server itself. Failures are ignored: analytics must never get in the user's way.
+
+const USAGE_PING_MS = 60_000;
+
+function newUsageKey() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// One visit per tab and user: a reload continues it, another user in the same tab starts a new one.
+function startUsage(userId) {
+  let stored = null;
+  try { stored = JSON.parse(sessionStorage.getItem('nst_usage') || 'null'); } catch (e) { /* storage blocked */ }
+  if (stored && stored.userId === userId && stored.key) {
+    usageKey = stored.key;
+  } else {
+    usageKey = newUsageKey();
+    try { sessionStorage.setItem('nst_usage', JSON.stringify({ userId, key: usageKey })); } catch (e) { /* storage blocked */ }
+  }
+}
+
+function usagePing(end) {
+  if (!session || !usageKey || !usageView) return;
+  fetch('/api/usage/ping', {
+    method: 'POST', credentials: 'same-origin', keepalive: true,
+    headers: { 'X-Requested-By': 'nst-app', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionKey: usageKey, view: usageView, page: ON_ADMIN_PAGE ? 'admin' : 'user', end: !!end }),
+  }).catch(() => { /* ignore */ });
+}
+
+const USAGE_VIEW_NAMES = { landingScreen: 'menu', companyCarContainer: 'company-car', incidentContainer: 'incidents' };
+function trackView(screen) {
+  const view = screen === 'appContainer' ? (ON_ADMIN_PAGE ? 'admin' : 'pool-booking') : USAGE_VIEW_NAMES[screen];
+  if (!view || !session || view === usageView) return;
+  usageView = view;
+  usagePing(false);
+}
+
+setInterval(() => { if (document.visibilityState === 'visible') usagePing(false); }, USAGE_PING_MS);
+document.addEventListener('visibilitychange', () => usagePing(document.visibilityState === 'hidden'));
+window.addEventListener('pagehide', () => usagePing(true));
 
 async function afterSignIn(user) {
   applyUser(user);

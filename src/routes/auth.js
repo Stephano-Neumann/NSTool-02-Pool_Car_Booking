@@ -41,6 +41,7 @@ export function authRoutes(db) {
     db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(nowIso(), user.id);
     createSession(db, res, req, user.id);
     log('info', 'login', { userId: user.id, role: user.role });
+    res.locals.usageUser = user; // lets the usage log record the sign-in (req.user is not set on this request)
     res.json(userOut(user));
   });
 

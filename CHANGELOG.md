@@ -58,3 +58,12 @@ Pre-deployment fixes from the Azure deployment guide.
 - Admins now sign in to the same pages as a regular user (`/`: Company Car, Pool Car Booking, Incident Management). An "Admin page" button on the menu, the session bar and the Company Car and Incident screens opens the admin console at `/nsadmin`, and a "User pages" button there brings them back, as often as they like.
 - In the user view an admin books for themselves like any other user (own name and licence, no on-behalf fields) and sees only their own incident reports. The admin console still books on behalf of someone else.
 - API: `POST /api/bookings` accepts `asSelf: true` (admin books as themselves); `GET /api/incidents?mine=1` returns only the caller's reports. Neither widens access; the role check is unchanged on every admin route.
+
+## 1.5.0
+
+- App usage analytics for Fabric. Migration 004 adds `usage_sessions` (one row per visit: user, account type, `user` or `admin` page, device class, start, last seen, end, active seconds, screen and action counts) and `usage_events` (each screen opened, and each write through the API with its HTTP status and duration).
+- The browser sends `POST /api/usage/ping` when a screen opens, every 60 seconds while the page is visible, and when it is hidden or closed. Only time with the page visible counts. Writes are recorded on the server, so they do not depend on the browser. The sign-in itself is recorded too. Reads and the raw user agent are not stored.
+- Data Export API: new datasets `usage_sessions` (watermark `updated_at`) and `usage_events` (watermark `at`), both flagged as personal data. The internal visit key is not exported. The Fabric notebook picks them up from the manifest.
+- `USAGE_RETENTION_DAYS` (default 365): older usage is purged from the app in the hourly sweep, without tombstones, so the lake keeps the history. The app refuses to start if it is not a whole number of days, 1 or more.
+- Migration 005: both usage tables and datasets carry `user_name` and `user_email` (as at the time), so the lake data is readable without a join to `users`. Existing rows are filled in from `users`.
+- Tests: ping auth and validation, visit time and screens, idle gaps not counted, actions linked to the visit (including failures), sign-in recorded, another user's visit key refused, retention purge, export datasets and incremental load.

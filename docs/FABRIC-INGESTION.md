@@ -18,7 +18,9 @@ Base: `https://<platform-fqdn>/api/export/v1` · Auth: `Authorization: Bearer <a
 - Never exposed: password hashes, sessions, settings and webhook URLs, and the policy PDF itself (only its metadata).
 - Errors: `401` bad or missing key, `404` export not enabled or unknown dataset, `400` bad parameter, `429` too many failed attempts.
 
-Car booking datasets: `users, vehicles, bookings, admin_profiles, alerts_log, company_vehicles, company_allocations, prestarts, km_log, incidents, policy_document, audit_log, deleted_records`. Personal data is flagged in the manifest (driver names and emails, licence numbers, incident details), so treat the lakehouse tables as confidential.
+Car booking datasets: `users, vehicles, bookings, admin_profiles, alerts_log, company_vehicles, company_allocations, prestarts, km_log, incidents, policy_document, audit_log, deleted_records, usage_sessions, usage_events`. Personal data is flagged in the manifest (driver names and emails, licence numbers, incident details, app usage per person), so treat the lakehouse tables as confidential.
+
+**App usage** for analysis: `usage_sessions` has one row per visit (user id, name and email, account type, device, start, last seen, end, active seconds, screen and action counts) and `usage_events` one row per screen opened or change made. Columns are listed in [API.md](API.md) section 4. Both carry the person's name and email as at the time; join to `users` on `user_id` for current details. The notebook picks them up from the manifest; nothing to configure. The app purges usage older than `USAGE_RETENTION_DAYS` (default 365) without tombstones, so the lake keeps the full history it has loaded.
 
 ## Try it locally
 

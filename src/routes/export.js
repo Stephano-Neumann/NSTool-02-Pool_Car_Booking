@@ -26,6 +26,9 @@ const DATASETS = {
   policy_document:     { cols: 'id,filename,size,uploaded_at,uploaded_by', wm: 'uploaded_at' }, // metadata only, never the PDF
   audit_log:           { cols: 'id,at,actor,action,entity,entity_id,detail', wm: 'at' },
   deleted_records:     { cols: 'id,entity,entity_id,deleted_at', wm: 'deleted_at' },
+  // App usage analytics (src/usage.js). session_key is an internal handle and is not exported.
+  usage_sessions:      { cols: 'id,user_id,user_name,user_email,role,page,device,started_at,last_seen_at,ended_at,active_seconds,views,actions,current_view,updated_at', wm: 'updated_at', pii: true },
+  usage_events:        { cols: 'id,at,user_id,user_name,user_email,usage_session_id,role,kind,name,status,duration_ms', wm: 'at', pii: true },
 };
 
 const MAX_LIMIT = 5000;
