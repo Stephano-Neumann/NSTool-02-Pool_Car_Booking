@@ -9,6 +9,7 @@ import { fleetRoutes } from './routes/fleet.js';
 import { adminRoutes } from './routes/admin.js';
 import { companyCarRoutes } from './routes/companycar.js';
 import { incidentRoutes } from './routes/incidents.js';
+import { photoRoutes } from './routes/photos.js';
 import { exportRoutes } from './routes/export.js';
 import { usageActions, usageRoutes } from './usage.js';
 import { log } from './util.js';
@@ -57,7 +58,7 @@ export function createApp(db) {
   // forged sign-in header on /api/export/* can never create or read a user.
   app.use('/api', exportRoutes(db));
   app.use('/api', express.json({ limit: '100kb' }), attachUser(db), requireCsrfHeader, usageActions(db));
-  app.use('/api', authRoutes(db), fleetRoutes(db), adminRoutes(db), companyCarRoutes(db), incidentRoutes(db), usageRoutes(db));
+  app.use('/api', authRoutes(db), fleetRoutes(db), adminRoutes(db), companyCarRoutes(db), incidentRoutes(db), photoRoutes(db), usageRoutes(db));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
   // Separate admin page. Local mode: the password sign-in page (public/app.js shows the form only on this path).

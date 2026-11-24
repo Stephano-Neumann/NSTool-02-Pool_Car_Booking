@@ -156,11 +156,11 @@ export async function seedTestData(db) {
 
     // Incidents
     const inc = uid('driver.incident@neumannsteel.test');
-    const addInc = db.prepare(`INSERT INTO incidents (user_id, name, licence, email, submitted_at, description, weather,
-        weather_other, road_surface, speed_limit, visibility, third_party) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    addInc.run(inc.id, inc.name, inc.licence, inc.email, bne(-3, 14), 'Reversing in the yard, clipped a bollard. Minor scrape to the rear quarter panel.',
+    const addInc = db.prepare(`INSERT INTO incidents (user_id, name, licence, email, submitted_at, address, description, weather,
+        weather_other, road_surface, speed_limit, visibility, third_party) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    addInc.run(inc.id, inc.name, inc.licence, inc.email, bne(-3, 14), 'Main yard, 1 Example St, Brisbane QLD', 'Reversing in the yard, clipped a bollard. Minor scrape to the rear quarter panel.',
       'Dry / Sunny', '', 'Sealed / Asphalt', '10', 'Clear', '{}');
-    addInc.run(inc.id, inc.name, inc.licence, inc.email, bne(-10, 7, 30),
+    addInc.run(inc.id, inc.name, inc.licence, inc.email, bne(-10, 7, 30), 'Gympie Rd at Lutwyche Rd, Lutwyche QLD',
       'Rear-ended at the lights on Gympie Rd. Other driver admitted fault.', 'Wet / Raining', '', 'Sealed / Asphalt', '60', 'Drastically Reduced',
       JSON.stringify({ name: 'Sam Thirdparty', phone: '0400 000 000', email: 'sam@example.test', licence: 'QLD 9999999',
         rego: 'ABC123', vehicle: 'White Mazda 3', insurer: 'Example Insurance', policy: 'POL-0001' }));

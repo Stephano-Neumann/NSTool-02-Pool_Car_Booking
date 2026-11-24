@@ -18,7 +18,7 @@ Password for **all** test logins: `neumansteel123`. The test environment uses th
 
 | Email | Role | Use it to test |
 |---|---|---|
-| `admin@neumannsteel.test` | Admin | Every panel: approvals, drivers, fleet, alert recipients, alerts, policy PDF, company vehicles, allocations, company car activity, incident reports |
+| `admin@neumannsteel.test` | Admin | Every panel: approvals, drivers, booking history, fleet, alert recipients, alerts, policy PDF, company vehicles, allocations, company car activity, prestart check history, incident reports |
 | `driver.new@neumannsteel.test` | Driver | First run: licence missing, policy not acknowledged, then a first booking |
 | `driver.pool@neumannsteel.test` | Driver | Bookings in every state: completed, in progress (Finish trip), upcoming (Start trip), pending, declined, low fuel and damage flags |
 | `driver.pool2@neumannsteel.test` | Driver | Second driver. Their bookings show as "Booked" on Paul's board |
@@ -44,8 +44,8 @@ Test environments (`AUTH_MODE=local`) keep using the role stored on each test lo
 
 | Role | Can | Cannot |
 |---|---|---|
-| Admin | Approve or decline bookings, cancel bookings, manage the fleet, company vehicles and allocations, alert recipients and webhook, policy PDF, see all drivers and incident reports | — |
-| Driver | See the availability board, request bookings, log their own trips, complete their own company car checks, submit and read their own incident reports | See other drivers' names or details, see admin panels, approve anything |
+| Admin | Approve or decline bookings, cancel bookings, manage the fleet, company vehicles and allocations, alert recipients and webhook, policy PDF, see all drivers, completed booking history with full trip details, every prestart check with its photos, and every incident report with its address and photos | — |
+| Driver | See the availability board, request bookings, log their own trips, complete their own company car checks, submit and read their own incident reports, attach photos to their own prestart checks and incident reports | See other drivers' names or details, see admin panels, approve anything |
 
 **Admin and user views.** An admin signs in to the same pages as a driver (`/`) and uses the **Admin page** button to open the admin console at `/nsadmin`; **User pages** there brings them back. In the user view an admin books for themselves (their own licence is needed, set under My profile) and sees only their own incident reports. The switch is a convenience only: access control is enforced on the server for every request.
 
@@ -121,6 +121,7 @@ One-time setup (steps 2 and 3 need Entra and subscription permissions; if you do
 - Other drivers' bookings reach a driver's browser as anonymous time blocks.
 - Two original bugs fixed: clicking a day on the board pre-filled the **previous** date for users east of UTC (such as Queensland), and the "Other" weather text box in incident reports could never appear (two elements shared one id).
 - The policy PDF limit is 5MB and it is stored in the database, so it is part of the backup.
+- **Photos** (incident reports and monthly prestart checks) are resized in the browser to a longest side of 1600 px, then stored in the database (table `photos`), so they are part of the backup too. Limits: JPEG, PNG or WebP, 5MB each, 8 per report or prestart check. Only the person who made the report or check can add photos; admins can view all of them. The Data Export API lists photo metadata (dataset `photos`), never the image bytes.
 
 ## Structure
 

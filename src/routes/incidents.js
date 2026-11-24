@@ -1,14 +1,16 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { HttpError, nowIso, text } from '../util.js';
+import { photosByOwner } from './photos.js';
 
 const WEATHER = ['Dry / Sunny', 'Wet / Raining', 'Foggy', 'Overcast', 'Other'];
 const ROAD = ['Sealed / Asphalt', 'Gravel', 'Dirt', 'Uneven', 'Muddy / Boggy'];
 const VISIBILITY = ['Clear', 'Drastically Reduced', 'Night (Streetlights ON)', 'Night (Streetlights OFF)'];
 const TP_FIELDS = ['name', 'phone', 'email', 'licence', 'rego', 'vehicle', 'insurer', 'policy'];
 
-const incidentOut = (i) => ({
+const incidentOut = (i, photos = [], viewer = null) => ({
   id: i.id, name: i.name, license: i.licence, email: i.email, submittedAt: i.submitted_at,
+  address: i.address, photos, mine: viewer ? i.user_id === viewer.id : false,
   description: i.description, weather: i.weather, weatherOther: i.weather_other,
   roadSurface: i.road_surface, speedLimit: i.speed_limit, visibility: i.visibility,
   thirdParty: JSON.parse(i.third_party),
@@ -29,11 +31,13 @@ export function incidentRoutes(db) {
     const rows = req.user.role === 'admin' && req.query.mine !== '1'
       ? db.prepare('SELECT * FROM incidents ORDER BY submitted_at DESC').all()
       : db.prepare('SELECT * FROM incidents WHERE user_id = ? ORDER BY submitted_at DESC').all(req.user.id);
-    res.json(rows.map(incidentOut));
+    const photos = photosByOwner(db, 'incident', rows.map(i => i.id));
+    res.json(rows.map(i => incidentOut(i, photos.get(i.id), req.user)));
   });
 
   r.post('/incidents', requireAuth, (req, res) => {
     const b = req.body || {};
+    const address = text(b.address, 'Address of the incident', { max: 300 });
     const description = text(b.description, 'Description of the incident', { max: 4000 });
     const weather = oneOf(b.weather, WEATHER, 'Weather');
     const weatherOther = weather === 'Other' ? text(b.weatherOther, 'Weather description', { optional: true, max: 200 }) : '';
@@ -42,13 +46,13 @@ export function incidentRoutes(db) {
     const thirdParty = {};
     for (const f of TP_FIELDS) thirdParty[f] = text(b.thirdParty?.[f], f, { optional: true, max: 200 });
 
-    const id = db.prepare(`INSERT INTO incidents (user_id, name, licence, email, submitted_at, description, weather,
+    const id = db.prepare(`INSERT INTO incidents (user_id, name, licence, email, submitted_at, address, description, weather,
                              weather_other, road_surface, speed_limit, visibility, third_party)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(req.user.id, req.user.name, req.user.licence, req.user.email, nowIso(), description, weather, weatherOther,
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(req.user.id, req.user.name, req.user.licence, req.user.email, nowIso(), address, description, weather, weatherOther,
         oneOf(b.roadSurface, ROAD, 'Road surface'), speedLimit, oneOf(b.visibility, VISIBILITY, 'Visibility'),
         JSON.stringify(thirdParty)).lastInsertRowid;
-    res.status(201).json(incidentOut(db.prepare('SELECT * FROM incidents WHERE id = ?').get(id)));
+    res.status(201).json(incidentOut(db.prepare('SELECT * FROM incidents WHERE id = ?').get(id), [], req.user));
   });
 
   return r;

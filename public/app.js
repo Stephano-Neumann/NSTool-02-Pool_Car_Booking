@@ -11,8 +11,8 @@ const pad = (n) => String(n).padStart(2, '0');
 
 // ---------- API ----------
 
-async function api(method, path, body) {
-  const opts = { method, credentials: 'same-origin', headers: { 'X-Requested-By': 'nst-app' } };
+async function api(method, path, body, extraHeaders) {
+  const opts = { method, credentials: 'same-origin', headers: { 'X-Requested-By': 'nst-app', ...extraHeaders } };
   if (usageKey) opts.headers['X-Usage-Session'] = usageKey; // links writes to this visit in the usage log
   if (body instanceof Blob) {
     opts.body = body;
@@ -54,6 +54,105 @@ async function busy(btn, fn) {
   try { return await fn(); } finally { btn.disabled = false; }
 }
 
+// ---------- photos ----------
+// Photos are resized in the browser (longest side 1600 px, JPEG) before upload, so phone camera shots stay small.
+
+const PHOTO_MAX = 8;
+const PHOTO_EDGE = 1600;
+const THUMB_EDGE = 160;
+
+function drawScaled(bitmap, edge, quality) {
+  const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  return canvas;
+}
+
+async function preparePhoto(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); } catch (e) {
+    throw new Error('Could not read "' + file.name + '". Use a JPEG, PNG or WebP photo.');
+  }
+  try {
+    const blob = await new Promise(resolve => drawScaled(bitmap, PHOTO_EDGE).toBlob(resolve, 'image/jpeg', 0.82));
+    if (!blob) throw new Error('Could not process "' + file.name + '".');
+    const thumb = drawScaled(bitmap, THUMB_EDGE).toDataURL('image/jpeg', 0.7);
+    return { blob, thumb, name: (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg' };
+  } finally {
+    if (bitmap.close) bitmap.close();
+  }
+}
+
+// A "Add photos" button with removable thumbnails. `existing` is how many photos the record already has.
+function createPhotoPicker(mountId, existing) {
+  const mount = $(mountId);
+  const items = [];
+  mount.classList.add('photo-picker');
+  mount.innerHTML =
+    '<label class="photo-add">Add photos<input type="file" accept="image/*" multiple hidden></label>' +
+    '<div class="error-msg" data-photo-error></div>' +
+    '<div class="data-note" data-photo-note style="margin-top:8px;"></div>' +
+    '<div class="photo-grid"></div>';
+  const input = mount.querySelector('input[type="file"]');
+  const errorEl = mount.querySelector('[data-photo-error]');
+  const note = mount.querySelector('[data-photo-note]');
+  const grid = mount.querySelector('.photo-grid');
+  const room = () => PHOTO_MAX - (existing || 0) - items.length;
+
+  function render() {
+    grid.innerHTML = items.map((it, i) =>
+      '<div class="photo-thumb"><img src="' + it.thumb + '" alt="Selected photo ' + (i + 1) + '">' +
+      '<button type="button" class="photo-remove" data-remove="' + i + '" aria-label="Remove photo">&times;</button></div>').join('');
+    grid.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', () => {
+      items.splice(Number(btn.dataset.remove), 1);
+      render();
+    }));
+    note.textContent = items.length
+      ? items.length + ' photo' + (items.length === 1 ? '' : 's') + ' ready to upload.'
+      : 'Optional. Up to ' + PHOTO_MAX + ' photos.';
+  }
+  input.addEventListener('change', async () => {
+    errorEl.classList.remove('show');
+    const files = Array.from(input.files);
+    input.value = '';
+    for (const file of files) {
+      if (room() <= 0) { errorEl.textContent = 'A maximum of ' + PHOTO_MAX + ' photos can be attached.'; errorEl.classList.add('show'); break; }
+      try { items.push(await preparePhoto(file)); } catch (err) { errorEl.textContent = err.message; errorEl.classList.add('show'); }
+    }
+    render();
+  });
+  render();
+  return { items: () => items.slice() };
+}
+
+// Uploads one at a time. Returns the list of failures (empty when everything went through).
+async function uploadPhotos(path, items) {
+  const failed = [];
+  for (const it of items) {
+    try { await api('POST', path, it.blob, { 'X-Filename': encodeURIComponent(it.name) }); }
+    catch (err) { failed.push(it.name + ': ' + err.message); }
+  }
+  return failed;
+}
+
+function photoGalleryHtml(photos) {
+  if (!photos || photos.length === 0) return '<div class="data-note">No photos attached.</div>';
+  return '<div class="photo-grid">' + photos.map(p =>
+    '<a class="photo-thumb" href="/api/photos/' + p.id + '" target="_blank" rel="noopener" title="' + escapeHtml(p.filename) + '">' +
+    '<img src="/api/photos/' + p.id + '" alt="' + escapeHtml(p.filename) + '" loading="lazy"></a>').join('') + '</div>';
+}
+
+function detailRows(rows) {
+  return '<table class="upcoming detail-table" style="margin-bottom:18px;"><tbody>' +
+    rows.map(([label, value]) => '<tr><td>' + label + '</td><td>' + value + '</td></tr>').join('') + '</tbody></table>';
+}
+
 // ---------- state ----------
 
 let authConfig = { mode: 'local', appEnv: 'local' };
@@ -68,6 +167,7 @@ let companyVehicles = [];
 let companyCarAllocations = [];
 let companyCarActivity = [];
 let incidentReports = [];
+let prestartHistory = []; // every prestart check, with photos (admin)
 let companyCarMe = null; // {monthKey, vehicle, prestart, km}
 let weekStart = startOfWeek(new Date());
 let fleetTab = 'active';
@@ -201,7 +301,7 @@ async function signOut() {
   usagePing(true);
   if (authConfig.mode === 'gateway') { window.location.href = '/.auth/logout?post_logout_redirect_uri=/'; return; }
   try { await api('POST', '/api/auth/logout'); } catch (e) { /* already signed out */ }
-  vehicles = []; bookings = []; drivers = []; incidentReports = []; companyCarMe = null;
+  vehicles = []; bookings = []; drivers = []; incidentReports = []; prestartHistory = []; companyCarMe = null;
   $('l-email').value = '';
   usageKey = null; usageView = null;
   try { sessionStorage.removeItem('nst_usage'); } catch (e) { /* storage blocked */ }
@@ -290,13 +390,13 @@ async function loadVehicles() { vehicles = await api('GET', '/api/vehicles'); po
 async function loadBookings() { bookings = await api('GET', '/api/bookings'); }
 async function loadPolicyMeta() { policyMeta = await api('GET', '/api/policy'); }
 async function loadAdminData() {
-  const [d, p, a, cv, al, act, inc] = await Promise.all([
+  const [d, p, a, cv, al, act, inc, ph] = await Promise.all([
     api('GET', '/api/drivers'), api('GET', '/api/admin-profiles'), api('GET', '/api/alerts'),
     api('GET', '/api/company-vehicles'), api('GET', '/api/company-allocations'),
-    api('GET', '/api/company-car/activity'), api('GET', '/api/incidents'),
+    api('GET', '/api/company-car/activity'), api('GET', '/api/incidents'), api('GET', '/api/company-car/prestarts'),
   ]);
   drivers = d; adminProfiles = p; alertsState = a;
-  companyVehicles = cv; companyCarAllocations = al; companyCarActivity = act; incidentReports = inc;
+  companyVehicles = cv; companyCarAllocations = al; companyCarActivity = act; incidentReports = inc; prestartHistory = ph;
 }
 
 // ---------- profile (name + licence) ----------
@@ -685,6 +785,88 @@ for (const id of ['closeDriverHistory', 'closeDriverHistory2']) {
 }
 $('overlayDriverHistory').addEventListener('click', (e) => { if (e.target === $('overlayDriverHistory')) $('overlayDriverHistory').classList.remove('open'); });
 
+// ---------- booking history (admin) ----------
+
+const BOOKING_HISTORY_LIMIT = 200;
+
+// A completed booking: approved, and either its trip was logged to the end or its return time has passed.
+function isCompletedBooking(b) {
+  return getStatus(b) === 'approved' && (b.finishKm != null || new Date(b.ret) < new Date());
+}
+
+function renderBookingHistory() {
+  const panel = $('bookingHistoryPanel');
+  if (!isAdmin()) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  const q = $('bookingHistorySearch').value.trim().toLowerCase();
+  const all = bookings.filter(isCompletedBooking).sort((a, b) => new Date(b.pickup) - new Date(a.pickup));
+  const matches = q ? all.filter(b => [regoOf(b.vehicleId), b.driverName, b.department, b.costCentre, b.license].join(' ').toLowerCase().includes(q)) : all;
+  const shown = matches.slice(0, BOOKING_HISTORY_LIMIT);
+  const tbody = $('bookingHistoryBody');
+  if (shown.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + (all.length === 0 ? 'No completed bookings yet.' : 'No completed bookings match that search.') + '</td></tr>';
+  } else {
+    tbody.innerHTML = shown.map(b =>
+      '<tr>' +
+        '<td>' + plate(regoOf(b.vehicleId)) + '</td>' +
+        '<td>' + escapeHtml(b.driverName) + '</td>' +
+        '<td>' + escapeHtml(b.department) + '</td>' +
+        '<td><span class="use-tag ' + (b.use === 'Private' ? 'private' : 'business') + '">' + escapeHtml(b.use) + '</span></td>' +
+        '<td>' + fmtDateTime(b.pickup) + ' – ' + fmtDateTime(b.ret) + '</td>' +
+        '<td>' + tripStatusHtml(b) + '</td>' +
+        '<td><button class="btn-ghost" data-booking-detail="' + b.id + '" style="padding:5px 10px;font-size:12px;">Details</button></td>' +
+      '</tr>').join('');
+    tbody.querySelectorAll('[data-booking-detail]').forEach(btn => btn.addEventListener('click', () => openBookingDetail(Number(btn.dataset.bookingDetail))));
+  }
+  $('bookingHistoryNote').textContent = matches.length > BOOKING_HISTORY_LIMIT
+    ? 'Showing the latest ' + BOOKING_HISTORY_LIMIT + ' of ' + matches.length + ' completed bookings. Use the search to narrow the list.'
+    : matches.length + ' completed booking' + (matches.length === 1 ? '' : 's') + '.';
+}
+$('bookingHistorySearch').addEventListener('input', renderBookingHistory);
+
+function openBookingDetail(bookingId) {
+  const b = bookings.find(x => x.id === bookingId);
+  if (!b) return;
+  const dash = (v) => (v === null || v === undefined || v === '') ? '—' : escapeHtml(String(v));
+  const h3 = '<h3 style="font-family:\'Archivo Narrow\',sans-serif;font-size:13.5px;margin:0 0 8px;">';
+  const km = (b.startKm != null && b.finishKm != null) ? (b.finishKm - b.startKm) + ' km' : '—';
+  $('bookingDetailBody').innerHTML =
+    h3 + 'Booking</h3>' +
+    detailRows([
+      ['Vehicle', plate(regoOf(b.vehicleId))],
+      ['Status', statusBadge(b)],
+      ['Use', dash(b.use)],
+      ['Department', dash(b.department)],
+      ['Cost centre', dash(b.costCentre)],
+      ['Booked pick up', fmtDateTime(b.pickup)],
+      ['Booked return', fmtDateTime(b.ret)],
+      ['Requested', b.createdAt ? fmtDateTime(b.createdAt) : '—'],
+      ['Reviewed', b.reviewedAt ? fmtDateTime(b.reviewedAt) + (b.reviewedBy ? ' by ' + escapeHtml(b.reviewedBy) : '') : '—'],
+    ]) +
+    h3 + 'Driver</h3>' +
+    detailRows([
+      ['Name', dash(b.driverName)],
+      ['Licence #', dash(b.license)],
+      ['Email', dash(b.email)],
+    ]) +
+    h3 + 'Trip log</h3>' +
+    detailRows([
+      ['Actual start', b.actualPickup ? fmtDateTime(b.actualPickup) : '—'],
+      ['Actual finish', b.actualReturn ? fmtDateTime(b.actualReturn) : '—'],
+      ['Start odometer', b.startKm != null ? b.startKm + ' km' : '—'],
+      ['Finish odometer', b.finishKm != null ? b.finishKm + ' km' : '—'],
+      ['Distance', km],
+      ['Quarter tank of fuel or more', b.fuelOk === null || b.fuelOk === undefined ? '—' : (b.fuelOk ? 'Yes' : '<span class="flag-badge">No, low fuel</span>')],
+      ['Start notes', dash(b.startNotes)],
+      ['Finish notes', dash(b.finishNotes)],
+    ]);
+  $('overlayBookingDetail').classList.add('open');
+}
+for (const id of ['closeBookingDetail', 'closeBookingDetail2']) {
+  $(id).addEventListener('click', () => $('overlayBookingDetail').classList.remove('open'));
+}
+$('overlayBookingDetail').addEventListener('click', (e) => { if (e.target === $('overlayBookingDetail')) $('overlayBookingDetail').classList.remove('open'); });
+
 function renderFleetPanel() {
   const panel = $('adminFleetPanel');
   if (!isAdmin()) { panel.style.display = 'none'; return; }
@@ -828,21 +1010,79 @@ function renderCompanyCarActivityPanel() {
       }
     }
     return '<tr><td>' + escapeHtml(a.name) + '</td><td>' + plate(a.rego) + '</td><td>' + prestartHtml + '</td>' +
-      '<td>' + (a.odometer != null ? '<span class="km-value">' + a.odometer + ' km</span>' : '<span class="trip-status">Not recorded</span>') + '</td></tr>';
+      '<td>' + (a.odometer != null ? '<span class="km-value">' + a.odometer + ' km</span>' : '<span class="trip-status">Not recorded</span>') + '</td>' +
+      '<td>' + (a.prestart ? '<button class="btn-ghost" data-view-prestart="' + a.prestart.id + '" style="padding:5px 10px;font-size:12px;">View check' +
+        (a.prestart.photos.length ? ' (' + a.prestart.photos.length + ' photo' + (a.prestart.photos.length === 1 ? '' : 's') + ')' : '') + '</button>' : '') + '</td></tr>';
   }).join('');
+  tbody.querySelectorAll('[data-view-prestart]').forEach(btn => btn.addEventListener('click', () => {
+    const row = companyCarActivity.find(a => a.prestart && a.prestart.id === Number(btn.dataset.viewPrestart));
+    if (row) openPrestartDetail(row.prestart, row.name, row.rego);
+  }));
 
   tbody.querySelectorAll('[data-toggle-fault]').forEach(btn => btn.addEventListener('click', () => busy(btn, async () => {
     const row = companyCarActivity.find(a => a.prestart && a.prestart.id === Number(btn.dataset.toggleFault));
     try {
       await api('PATCH', '/api/prestarts/' + btn.dataset.toggleFault, { faultCompleted: !row.prestart.faultCompleted });
-      companyCarActivity = await api('GET', '/api/company-car/activity');
+      [companyCarActivity, prestartHistory] = await Promise.all([api('GET', '/api/company-car/activity'), api('GET', '/api/company-car/prestarts')]);
     } catch (err) { alert(err.message); }
     renderCompanyCarActivityPanel();
+    renderPrestartHistoryPanel();
   })));
   tbody.querySelectorAll('[data-mex-for]').forEach(input => input.addEventListener('change', async () => {
     try { await api('PATCH', '/api/prestarts/' + input.dataset.mexFor, { mexNumber: input.value }); } catch (err) { alert(err.message); }
   }));
 }
+
+function renderPrestartHistoryPanel() {
+  const panel = $('prestartHistoryPanel');
+  if (!isAdmin()) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  const tbody = $('prestartHistoryBody');
+  if (prestartHistory.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No prestart checks submitted yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = prestartHistory.map(p => {
+    const failed = failedPrestartItems(p);
+    const result = failed.length
+      ? '<span class="flag-badge">' + failed.length + ' issue' + (failed.length === 1 ? '' : 's') + '</span> ' +
+        (p.faultCompleted ? '<span class="trip-status logged">Fault completed</span>' : '<span class="trip-status">Fault open</span>')
+      : '<span class="trip-status logged">All OK</span>';
+    return '<tr><td>' + monthKeyLabel(p.monthKey) + '</td><td>' + escapeHtml(p.driverName) + '</td>' +
+      '<td>' + (p.rego ? plate(p.rego) : '—') + '</td><td>' + result + '</td><td>' + p.photos.length + '</td>' +
+      '<td><button class="btn-ghost" data-history-prestart="' + p.id + '" style="padding:5px 10px;font-size:12px;">View</button></td></tr>';
+  }).join('');
+  tbody.querySelectorAll('[data-history-prestart]').forEach(btn => btn.addEventListener('click', () => {
+    const p = prestartHistory.find(x => x.id === Number(btn.dataset.historyPrestart));
+    if (p) openPrestartDetail(p, p.driverName, p.rego);
+  }));
+}
+
+function openPrestartDetail(p, driverName, rego) {
+  const failed = failedPrestartItems(p);
+  const h3 = '<h3 style="font-family:\'Archivo Narrow\',sans-serif;font-size:13.5px;margin:0 0 8px;">';
+  $('prestartDetailBody').innerHTML =
+    detailRows([
+      ['Driver', escapeHtml(driverName || '—')],
+      ['Vehicle', rego ? plate(rego) : '—'],
+      ['Month', monthKeyLabel(p.monthKey)],
+      ['Submitted', fmtDateTime(p.submittedAt)],
+    ]) +
+    h3 + 'Checklist</h3>' +
+    detailRows(PRESTART_ITEMS.map(item => [escapeHtml(item.label), p.items[item.id] ? '<span class="check-ok">✓ OK</span>' : '<span class="check-bad">✗ Issue</span>'])) +
+    h3 + 'Notes and fault follow-up</h3>' +
+    detailRows([
+      ['Notes', escapeHtml(p.notes || '—')],
+      ['Mex #', escapeHtml(p.mexNumber || '—')],
+      ['Fault status', failed.length ? (p.faultCompleted ? 'Completed' : 'Not yet completed') : 'No issues flagged'],
+    ]) +
+    h3 + 'Photos (' + p.photos.length + ')</h3>' + photoGalleryHtml(p.photos);
+  $('overlayPrestartDetail').classList.add('open');
+}
+for (const id of ['closePrestartDetail', 'closePrestartDetail2']) {
+  $(id).addEventListener('click', () => $('overlayPrestartDetail').classList.remove('open'));
+}
+$('overlayPrestartDetail').addEventListener('click', (e) => { if (e.target === $('overlayPrestartDetail')) $('overlayPrestartDetail').classList.remove('open'); });
 
 function renderIncidentAdminPanel() {
   const panel = $('incidentAdminPanel');
@@ -850,13 +1090,15 @@ function renderIncidentAdminPanel() {
   panel.style.display = 'block';
   const tbody = $('incidentAdminBody');
   if (incidentReports.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No incident reports submitted yet.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No incident reports submitted yet.</td></tr>';
     return;
   }
   tbody.innerHTML = incidentReports.map(r =>
     '<tr><td>' + fmtDateTime(r.submittedAt) + '</td><td>' + escapeHtml(r.name) + '</td>' +
+    '<td>' + escapeHtml(truncateText(r.address || '—', 40)) + '</td>' +
     '<td>' + escapeHtml(truncateText(r.description, 60)) + '</td>' +
     '<td>' + (r.thirdParty.name ? escapeHtml(r.thirdParty.name) : '—') + '</td>' +
+    '<td>' + r.photos.length + '</td>' +
     '<td><button class="btn-ghost" data-view-incident="' + r.id + '" style="padding:5px 10px;font-size:12px;">View</button></td></tr>').join('');
   tbody.querySelectorAll('[data-view-incident]').forEach(btn => btn.addEventListener('click', () => openIncidentDetail(Number(btn.dataset.viewIncident))));
 }
@@ -875,6 +1117,8 @@ function renderAll() {
   renderCompanyCarActivityPanel();
   renderCompanyVehiclesPanel();
   renderIncidentAdminPanel();
+  renderBookingHistory();
+  renderPrestartHistoryPanel();
 }
 
 // Reload everything that a booking change can affect.
@@ -1358,7 +1602,25 @@ function renderCompanyCarPrestart() {
           (existing.mexNumber ? '<div class="data-note">Mex #: ' + escapeHtml(existing.mexNumber) + '</div>' : '') +
           '<div class="data-note">' + (existing.faultCompleted ? '<span class="status-tag approved">Fault completed</span>' : '<span class="status-tag pending">Fault not yet completed</span>') + '</div>'
         : '<span class="status-tag approved">All items OK</span>') +
-      (existing.notes ? '<div class="data-note" style="margin-top:10px;">Notes: ' + escapeHtml(existing.notes) + '</div>' : '');
+      (existing.notes ? '<div class="data-note" style="margin-top:10px;">Notes: ' + escapeHtml(existing.notes) + '</div>' : '') +
+      '<h3 style="font-family:\'Archivo Narrow\',sans-serif;font-size:13.5px;margin:16px 0 4px;">Photos</h3>' +
+      photoGalleryHtml(existing.photos) +
+      (existing.photos.length < PHOTO_MAX
+        ? '<div style="margin-top:14px;"><div class="error-msg" id="prestartPhotoError"></div><div id="prestartAddPhotos"></div>' +
+          '<button class="btn-ghost" id="prestartUploadPhotosBtn" style="margin-top:8px;">Upload photos</button></div>'
+        : '');
+    if (existing.photos.length < PHOTO_MAX) {
+      const picker = createPhotoPicker('prestartAddPhotos', existing.photos.length);
+      $('prestartUploadPhotosBtn').addEventListener('click', () => busy($('prestartUploadPhotosBtn'), async () => {
+        clearError('prestartPhotoError');
+        const items = picker.items();
+        if (items.length === 0) { showError('prestartPhotoError', 'Choose at least one photo first.'); return; }
+        const failed = await uploadPhotos('/api/prestarts/' + existing.id + '/photos', items);
+        await loadCompanyCarMe();
+        renderCompanyCarApp();
+        if (failed.length) alert('Some photos could not be uploaded:\n' + failed.join('\n'));
+      }));
+    }
     return;
   }
 
@@ -1369,6 +1631,7 @@ function renderCompanyCarPrestart() {
     '</div>' +
     '<div class="field full" style="margin-bottom:10px;"><label for="prestart-notes">Notes — describe any dents, scratches, or other issues found</label>' +
       '<textarea id="prestart-notes" placeholder="Leave blank if everything checked out"></textarea></div>' +
+    '<div class="field full" style="margin-bottom:14px;"><label>Photos — show any damage or issues found</label><div id="prestartPhotos"></div></div>' +
     '<div id="prestartFaultSection" style="display:none;margin-bottom:14px;">' +
       '<div class="form-grid" style="grid-template-columns:1fr;"><div class="field"><label for="prestart-mex">Mex #</label>' +
         '<input id="prestart-mex" type="text" placeholder="Maintenance exception reference number"></div></div>' +
@@ -1382,19 +1645,23 @@ function renderCompanyCarPrestart() {
     $('prestartFaultSection').style.display = boxes().some(c => !c.checked) ? 'block' : 'none';
   }));
 
+  const photoPicker = createPhotoPicker('prestartPhotos', 0);
   $('submitPrestartBtn').addEventListener('click', () => busy($('submitPrestartBtn'), async () => {
     const items = {};
     boxes().forEach(cb => { items[cb.dataset.item] = cb.checked; });
     const hasFault = Object.values(items).some(v => !v);
+    let failedPhotos = [];
     try {
-      await api('POST', '/api/company-car/prestart', {
+      const created = await api('POST', '/api/company-car/prestart', {
         items, notes: $('prestart-notes').value,
         mexNumber: hasFault ? $('prestart-mex').value : '',
         faultCompleted: hasFault ? $('prestart-fault-completed').checked : false,
       });
+      failedPhotos = await uploadPhotos('/api/prestarts/' + created.id + '/photos', photoPicker.items());
       await loadCompanyCarMe();
     } catch (err) { showError('prestartError', err.message); return; }
     renderCompanyCarApp();
+    if (failedPhotos.length) alert('Your prestart check was saved, but some photos could not be uploaded. You can add them again below.\n' + failedPhotos.join('\n'));
   }));
 }
 
@@ -1460,6 +1727,7 @@ const INCIDENT_WEATHER_OPTIONS = ['Dry / Sunny', 'Wet / Raining', 'Foggy', 'Over
 const INCIDENT_ROAD_SURFACE_OPTIONS = ['Sealed / Asphalt', 'Gravel', 'Dirt', 'Uneven', 'Muddy / Boggy'];
 const INCIDENT_VISIBILITY_OPTIONS = ['Clear', 'Drastically Reduced', 'Night (Streetlights ON)', 'Night (Streetlights OFF)'];
 let incidentJustSubmitted = false;
+let incidentPhotoFailures = [];
 
 function radioGroupHtml(name, options, otherFieldId) {
   return options.map(opt => {
@@ -1476,9 +1744,13 @@ function renderIncidentForm() {
   panel.innerHTML =
     '<div class="panel-title"><span>New incident report</span></div>' +
     (incidentJustSubmitted ? '<div class="data-note" style="color:var(--green);margin:0 0 14px;">Incident report submitted. Thank you.</div>' : '') +
+    (incidentPhotoFailures.length ? '<div class="error-msg show">The report was saved, but some photos could not be uploaded. Open the report under "My submitted reports" to add them again.<br>' + incidentPhotoFailures.map(escapeHtml).join('<br>') + '</div>' : '') +
     '<div class="error-msg" id="incidentError"></div>' +
-    '<div class="field full" style="margin-bottom:22px;"><label for="incident-description">Brief description of incident</label>' +
+    '<div class="field full" style="margin-bottom:14px;"><label for="incident-address">Address of the incident</label>' +
+      '<input type="text" id="incident-address" maxlength="300" placeholder="Street address, suburb, state (or nearest cross street)"></div>' +
+    '<div class="field full" style="margin-bottom:14px;"><label for="incident-description">Brief description of incident</label>' +
       '<textarea id="incident-description" placeholder="What happened, in a few sentences"></textarea></div>' +
+    '<div class="field full" style="margin-bottom:22px;"><label>Photos (damage, scene, third-party vehicle)</label><div id="incidentPhotos"></div></div>' +
     h3 + '4. Environment &amp; road conditions</h3>' +
     '<div class="field full" style="margin-bottom:14px;"><label>Weather conditions</label>' +
       '<div class="checklist">' + radioGroupHtml('incident-weather', INCIDENT_WEATHER_OPTIONS, 'incident-weather-other-text') + '</div>' +
@@ -1508,13 +1780,17 @@ function renderIncidentForm() {
     });
   });
 
+  const photoPicker = createPhotoPicker('incidentPhotos', 0);
   $('submitIncidentBtn').addEventListener('click', () => busy($('submitIncidentBtn'), async () => {
     clearError('incidentError');
     const radioValue = (name) => { const c = panel.querySelector('input[name="' + name + '"]:checked'); return c ? c.value : ''; };
+    if (!$('incident-address').value.trim()) { showError('incidentError', 'Enter the address of the incident.'); window.scrollTo(0, 0); return; }
     if (!$('incident-description').value.trim()) { showError('incidentError', 'Enter a brief description of the incident.'); return; }
     const val = (id) => $(id).value.trim();
+    let failedPhotos = [];
     try {
-      await api('POST', '/api/incidents', {
+      const created = await api('POST', '/api/incidents', {
+        address: val('incident-address'),
         description: val('incident-description'),
         weather: radioValue('incident-weather'), weatherOther: val('incident-weather-other-text'),
         roadSurface: radioValue('incident-road-surface'), speedLimit: val('incident-speed-limit'),
@@ -1524,11 +1800,14 @@ function renderIncidentForm() {
           rego: val('tp-rego'), vehicle: val('tp-vehicle'), insurer: val('tp-insurer'), policy: val('tp-policy'),
         },
       });
+      failedPhotos = await uploadPhotos('/api/incidents/' + created.id + '/photos', photoPicker.items());
       incidentReports = await api('GET', incidentsUrl());
     } catch (err) { showError('incidentError', err.message); return; }
     incidentJustSubmitted = true;
+    incidentPhotoFailures = failedPhotos;
     renderIncidentApp();
     incidentJustSubmitted = false;
+    incidentPhotoFailures = [];
     window.scrollTo(0, 0);
   }));
 }
@@ -1536,11 +1815,12 @@ function renderIncidentForm() {
 function renderIncidentMyReports() {
   const tbody = $('incidentMyReportsBody');
   if (incidentReports.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No incident reports submitted yet.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No incident reports submitted yet.</td></tr>';
     return;
   }
   tbody.innerHTML = incidentReports.map(r =>
-    '<tr><td>' + fmtDateTime(r.submittedAt) + '</td><td>' + escapeHtml(truncateText(r.description, 60)) + '</td>' +
+    '<tr><td>' + fmtDateTime(r.submittedAt) + '</td><td>' + escapeHtml(truncateText(r.address || '—', 40)) + '</td>' +
+    '<td>' + escapeHtml(truncateText(r.description, 60)) + '</td>' +
     '<td>' + (r.thirdParty.name ? escapeHtml(r.thirdParty.name) : '—') + '</td>' +
     '<td><button class="btn-ghost" data-view-incident="' + r.id + '" style="padding:5px 10px;font-size:12px;">View</button></td></tr>').join('');
   tbody.querySelectorAll('[data-view-incident]').forEach(btn => btn.addEventListener('click', () => openIncidentDetail(Number(btn.dataset.viewIncident))));
@@ -1557,7 +1837,14 @@ function openIncidentDetail(reportId) {
   const h3 = '<h3 style="font-family:\'Archivo Narrow\',sans-serif;font-size:13.5px;margin:0 0 8px;">';
   const tp = r.thirdParty;
   $('incidentDetailBody').innerHTML =
-    '<div class="data-note" style="margin-bottom:14px;">Submitted by ' + escapeHtml(r.name) + ' on ' + fmtDateTime(r.submittedAt) + '</div>' +
+    h3 + 'Report</h3>' +
+    detailRows([
+      ['Submitted', fmtDateTime(r.submittedAt)],
+      ['Reported by', escapeHtml(r.name || '—')],
+      ['Licence #', escapeHtml(r.license || '—')],
+      ['Email', escapeHtml(r.email || '—')],
+      ['Address of incident', escapeHtml(r.address || '—')],
+    ]) +
     h3 + 'Description</h3>' +
     '<div class="data-note" style="margin-bottom:18px;color:var(--ink);">' + escapeHtml(r.description || '—') + '</div>' +
     h3 + 'Environment &amp; road conditions</h3>' +
@@ -1574,7 +1861,27 @@ function openIncidentDetail(reportId) {
           ['Vehicle rego', tp.rego], ['Vehicle make/model/colour', tp.vehicle], ['Insurer', tp.insurer], ['Policy number', tp.policy]]
           .map(([label, value]) => '<tr><td>' + label + '</td><td>' + escapeHtml(value || '—') + '</td></tr>').join('') +
         '</tbody></table>'
-      : '<div class="data-note">No third party was recorded for this incident.</div>');
+      : '<div class="data-note">No third party was recorded for this incident.</div>') +
+    '<h3 style="font-family:\'Archivo Narrow\',sans-serif;font-size:13.5px;margin:18px 0 4px;">Photos (' + r.photos.length + ')</h3>' +
+    photoGalleryHtml(r.photos) +
+    (r.mine && r.photos.length < PHOTO_MAX
+      ? '<div style="margin-top:14px;"><div class="error-msg" id="incidentPhotoError"></div><div id="incidentAddPhotos"></div>' +
+        '<button class="btn-ghost" id="incidentUploadPhotosBtn" style="margin-top:8px;">Upload photos</button></div>'
+      : '');
+  if (r.mine && r.photos.length < PHOTO_MAX) {
+    const picker = createPhotoPicker('incidentAddPhotos', r.photos.length);
+    $('incidentUploadPhotosBtn').addEventListener('click', () => busy($('incidentUploadPhotosBtn'), async () => {
+      clearError('incidentPhotoError');
+      const items = picker.items();
+      if (items.length === 0) { showError('incidentPhotoError', 'Choose at least one photo first.'); return; }
+      const failed = await uploadPhotos('/api/incidents/' + r.id + '/photos', items);
+      try { incidentReports = await api('GET', incidentsUrl()); } catch (err) { showError('incidentPhotoError', err.message); return; }
+      renderIncidentMyReports();
+      renderIncidentAdminPanel();
+      openIncidentDetail(r.id);
+      if (failed.length) alert('Some photos could not be uploaded:\n' + failed.join('\n'));
+    }));
+  }
   $('overlayIncidentDetail').classList.add('open');
 }
 for (const id of ['closeIncidentDetail', 'closeIncidentDetail2']) {

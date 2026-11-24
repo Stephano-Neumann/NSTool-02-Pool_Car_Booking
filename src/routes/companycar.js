@@ -2,19 +2,22 @@ import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../auth.js';
 import { HttpError, nowIso, text, email, wholeNumber, currentMonthKey } from '../util.js';
 import { audit } from '../audit.js';
+import { photosByOwner } from './photos.js';
 
 export const PRESTART_ITEM_IDS = ['tyres', 'lights', 'brakes', 'fluids', 'mirrors', 'presentable', 'dents'];
 
 const vehicleOut = (v) => ({
   id: v.id, rego: v.rego, model: v.model, dueServiceKm: v.due_service_km,
 });
-const prestartOut = (p) => p ? {
+const prestartOut = (p, photos = []) => p ? {
   id: p.id, monthKey: p.month_key, items: JSON.parse(p.items), notes: p.notes,
-  mexNumber: p.mex_number, faultCompleted: !!p.fault_completed, submittedAt: p.submitted_at,
+  mexNumber: p.mex_number, faultCompleted: !!p.fault_completed, submittedAt: p.submitted_at, photos,
 } : null;
 
 export function companyCarRoutes(db) {
   const r = Router();
+  const photosOf = (prestartIds) => photosByOwner(db, 'prestart', prestartIds);
+  const prestartWithPhotos = (p) => p ? prestartOut(p, photosOf([p.id]).get(p.id)) : null;
 
   // ---- company vehicle register (admin) ----
   r.get('/company-vehicles', requireAdmin, (req, res) => {
@@ -99,7 +102,7 @@ export function companyCarRoutes(db) {
     res.json({
       monthKey,
       vehicle: vehicle ? vehicleOut(vehicle) : null,
-      prestart: prestartOut(prestart),
+      prestart: prestartWithPhotos(prestart),
       km: km.map(k => ({ monthKey: k.month_key, odometer: k.odometer, submittedAt: k.submitted_at })),
     });
   });
@@ -121,7 +124,7 @@ export function companyCarRoutes(db) {
     db.prepare(`INSERT INTO prestarts (user_id, month_key, items, notes, mex_number, fault_completed, submitted_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(req.user.id, monthKey, JSON.stringify(items), notes, mex, faultCompleted ? 1 : 0, nowIso());
-    res.status(201).json(prestartOut(db.prepare('SELECT * FROM prestarts WHERE user_id = ? AND month_key = ?').get(req.user.id, monthKey)));
+    res.status(201).json(prestartWithPhotos(db.prepare('SELECT * FROM prestarts WHERE user_id = ? AND month_key = ?').get(req.user.id, monthKey)));
   });
 
   r.post('/company-car/km', requireAuth, (req, res) => {
@@ -151,14 +154,33 @@ export function companyCarRoutes(db) {
       JOIN company_vehicles cv ON cv.id = a.vehicle_id
       LEFT JOIN users u ON u.email = a.driver_email
       ORDER BY a.driver_name`).all();
-    res.json(rows.map(a => {
-      const prestart = a.user_id && db.prepare('SELECT * FROM prestarts WHERE user_id = ? AND month_key = ?').get(a.user_id, monthKey);
+    const found = rows.map(a => ({
+      a,
+      prestart: a.user_id ? db.prepare('SELECT * FROM prestarts WHERE user_id = ? AND month_key = ?').get(a.user_id, monthKey) : null,
+    }));
+    const photos = photosOf(found.filter(f => f.prestart).map(f => f.prestart.id));
+    res.json(found.map(({ a, prestart }) => {
       const km = a.user_id && db.prepare('SELECT odometer FROM km_log WHERE user_id = ? AND month_key = ?').get(a.user_id, monthKey);
       return {
         allocationId: a.allocation_id, name: a.driver_name, rego: a.rego,
-        prestart: prestartOut(prestart) || null, odometer: km ? km.odometer : null,
+        prestart: prestart ? prestartOut(prestart, photos.get(prestart.id)) : null, odometer: km ? km.odometer : null,
       };
     }));
+  });
+
+  // ---- every prestart check ever submitted, with items, notes and photos (admin) ----
+  r.get('/company-car/prestarts', requireAdmin, (req, res) => {
+    const rows = db.prepare(`
+      SELECT p.*, u.name AS user_name, u.email AS user_email, cv.rego AS rego
+      FROM prestarts p
+      JOIN users u ON u.id = p.user_id
+      LEFT JOIN company_allocations a ON a.driver_email = u.email
+      LEFT JOIN company_vehicles cv ON cv.id = a.vehicle_id
+      ORDER BY p.month_key DESC, u.name`).all();
+    const photos = photosOf(rows.map(p => p.id));
+    res.json(rows.map(p => ({
+      ...prestartOut(p, photos.get(p.id)), driverName: p.user_name, driverEmail: p.user_email, rego: p.rego || null,
+    })));
   });
 
   r.patch('/prestarts/:id', requireAdmin, (req, res) => {
@@ -168,7 +190,7 @@ export function companyCarRoutes(db) {
     const done = req.body?.faultCompleted !== undefined ? (req.body.faultCompleted === true ? 1 : 0) : p.fault_completed;
     db.prepare('UPDATE prestarts SET mex_number = ?, fault_completed = ? WHERE id = ?').run(mex, done, p.id);
     audit(db, req, 'update', 'prestart', p.id, `mex=${mex} completed=${done}`);
-    res.json(prestartOut(db.prepare('SELECT * FROM prestarts WHERE id = ?').get(p.id)));
+    res.json(prestartWithPhotos(db.prepare('SELECT * FROM prestarts WHERE id = ?').get(p.id)));
   });
 
   return r;

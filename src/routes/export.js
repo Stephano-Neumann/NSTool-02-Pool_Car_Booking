@@ -22,7 +22,8 @@ const DATASETS = {
   company_allocations: { cols: 'id,driver_name,driver_email,vehicle_id,updated_at', wm: 'updated_at', pii: true },
   prestarts:           { cols: 'id,user_id,month_key,items,notes,mex_number,fault_completed,submitted_at,updated_at', wm: 'updated_at' },
   km_log:              { cols: 'id,user_id,month_key,odometer,submitted_at', wm: 'submitted_at' },
-  incidents:           { cols: 'id,user_id,name,licence,email,submitted_at,description,weather,weather_other,road_surface,speed_limit,visibility,third_party', wm: 'submitted_at', pii: true },
+  incidents:           { cols: 'id,user_id,name,licence,email,submitted_at,address,description,weather,weather_other,road_surface,speed_limit,visibility,third_party', wm: 'submitted_at', pii: true },
+  photos:              { cols: 'id,owner_type,owner_id,user_id,filename,mime,size,created_at', wm: 'created_at' }, // metadata only, never the image bytes
   policy_document:     { cols: 'id,filename,size,uploaded_at,uploaded_by', wm: 'uploaded_at' }, // metadata only, never the PDF
   audit_log:           { cols: 'id,at,actor,action,entity,entity_id,detail', wm: 'at' },
   deleted_records:     { cols: 'id,entity,entity_id,deleted_at', wm: 'deleted_at' },
