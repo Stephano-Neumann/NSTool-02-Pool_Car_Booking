@@ -125,6 +125,22 @@
     </div>
   </section>
 
+  <section class="panel" id="bookingHistoryPanel" style="display:none;">
+    <div class="panel-title">
+      <span>Booking history</span>
+      <input type="search" id="bookingHistorySearch" placeholder="Search vehicle, driver, department" style="max-width:260px;">
+    </div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Vehicle</th><th>Driver</th><th>Department</th><th>Use</th><th>Booked</th><th>Trip</th><th></th></tr>
+      </thead>
+      <tbody id="bookingHistoryBody"></tbody>
+    </table>
+    </div>
+    <div class="data-note" id="bookingHistoryNote"></div>
+  </section>
+
   <section class="panel" id="adminFleetPanel" style="display:none;">
     <div class="panel-title">
       <span>Fleet</span>
@@ -233,9 +249,21 @@
     <div class="board-scroll">
     <table class="upcoming">
       <thead>
-        <tr><th>Driver</th><th>Rego</th><th>Prestart</th><th>KM recorded</th></tr>
+        <tr><th>Driver</th><th>Rego</th><th>Prestart</th><th>KM recorded</th><th></th></tr>
       </thead>
       <tbody id="companyCarActivityBody"></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel" id="prestartHistoryPanel" style="display:none;">
+    <div class="panel-title"><span>Prestart check history</span></div>
+    <div class="board-scroll">
+    <table class="upcoming">
+      <thead>
+        <tr><th>Month</th><th>Driver</th><th>Rego</th><th>Result</th><th>Photos</th><th></th></tr>
+      </thead>
+      <tbody id="prestartHistoryBody"></tbody>
     </table>
     </div>
   </section>
@@ -245,7 +273,7 @@
     <div class="board-scroll">
     <table class="upcoming">
       <thead>
-        <tr><th>Submitted</th><th>Reported by</th><th>Description</th><th>Third party involved</th><th></th></tr>
+        <tr><th>Submitted</th><th>Reported by</th><th>Address</th><th>Description</th><th>Third party involved</th><th>Photos</th><th></th></tr>
       </thead>
       <tbody id="incidentAdminBody"></tbody>
     </table>
@@ -348,7 +376,7 @@
     <div class="panel-title"><span>My submitted reports</span></div>
     <div class="board-scroll">
     <table class="upcoming">
-      <thead><tr><th>Submitted</th><th>Description</th><th>Third party involved</th><th></th></tr></thead>
+      <thead><tr><th>Submitted</th><th>Address</th><th>Description</th><th>Third party involved</th><th></th></tr></thead>
       <tbody id="incidentMyReportsBody"></tbody>
     </table>
     </div>
@@ -533,6 +561,36 @@
     </div>
     <div class="modal-foot">
       <button class="btn-ghost" id="closeIncidentDetail2">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayBookingDetail">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head">
+      <h2>Booking details</h2>
+      <button class="modal-close" id="closeBookingDetail">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="bookingDetailBody"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="closeBookingDetail2">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlayPrestartDetail">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-head">
+      <h2>Prestart check</h2>
+      <button class="modal-close" id="closePrestartDetail">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="prestartDetailBody"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="closePrestartDetail2">Close</button>
     </div>
   </div>
 </div>

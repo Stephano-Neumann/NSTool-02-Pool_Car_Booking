@@ -8,7 +8,7 @@ const vehicleOut = (v) => ({ id: v.id, rego: v.rego, model: v.model, archived: !
 
 // Drivers see their own bookings in full. Everyone else's bookings reach them
 // as anonymous time blocks, so the availability board works without leaking who is driving.
-function bookingOut(b, viewer) {
+function bookingOut(b, viewer, names) {
   const mine = b.user_id === viewer.id;
   const out = {
     id: b.id, vehicleId: b.vehicle_id, use: b.use_type, pickup: b.pickup, ret: b.ret,
@@ -20,6 +20,7 @@ function bookingOut(b, viewer) {
     driverName: b.driver_name, license: b.licence, email: b.email,
     department: b.department, costCentre: b.cost_centre,
     createdAt: b.created_at, reviewedAt: b.reviewed_at,
+    reviewedBy: (names && names.get(b.reviewed_by)) || null,
     actualPickup: b.actual_pickup, actualReturn: b.actual_return,
     startKm: b.start_km, finishKm: b.finish_km,
     startNotes: b.start_notes, finishNotes: b.finish_notes,
@@ -98,7 +99,11 @@ export function fleetRoutes(db) {
   r.get('/bookings', requireAuth, (req, res) => {
     const rows = db.prepare("SELECT * FROM bookings WHERE status != 'declined' OR user_id = ? OR ? = 'admin' ORDER BY pickup")
       .all(req.user.id, req.user.role);
-    res.json(rows.map(b => bookingOut(b, req.user)));
+    // Admins also get the name of whoever approved or declined each booking, for the booking history.
+    const names = req.user.role === 'admin'
+      ? new Map(db.prepare("SELECT id, name FROM users").all().map(u => [u.id, u.name]))
+      : null;
+    res.json(rows.map(b => bookingOut(b, req.user, names)));
   });
 
   function findOverlap(vehicleId, pickup, ret, excludeId = 0) {

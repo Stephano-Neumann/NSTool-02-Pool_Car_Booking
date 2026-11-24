@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Pool cars: new admin **Booking history** panel lists completed bookings (searchable) with a Details view of everything recorded: booking, driver, approval (and who approved it), trip log, odometer, fuel and notes. Bookings returned to admins now include who reviewed them.
+- Incident reports: new required **Address of the incident** field at the top of the form, and photo attachments (up to 8). Admins see the address, photo count and every field, including the reporter's licence and email, in the incident panel and detail view. The reporter can add more photos to their own report later.
+- Company car: drivers can attach photos to the monthly prestart check (when submitting, or afterwards). Admins get a **View check** button on the activity panel and a new **Prestart check history** panel showing every month's checklist, notes, Mex # and photos.
+- Migration 006: `incidents.address` and a `photos` table. New endpoints: `POST /api/incidents/:id/photos`, `POST /api/prestarts/:id/photos`, `GET /api/photos/:id` (owner or admin), `GET /api/company-car/prestarts` (admin). Data Export API: `incidents.address` and a `photos` metadata dataset.
 - Hibernation: the app scales to zero after 1 hour with no use (minReplicas 0, cooldownPeriod 3600, one HTTP scale rule) and wakes on the next visit; maxReplicas stays 1. Container Apps API version raised to 2025-01-01.
 - Separate admin page `/nsadmin`. Local mode: it hosts the email + password sign-in (the main page shows no form). Gateway mode: only signed-in admins (Entra `Admin` app role or `ADMIN_EMAILS`) are served the app there; everyone else gets a 403 no-access page.
 - Gateway mode: optional `ALLOWED_EMAIL_DOMAINS` allowlist (defence in depth on top of Entra "Assignment required"). Out-of-domain sign-ins are rejected and create no user. New test; wired through `infra/main.bicep` and the pipeline variable `ALLOWED_EMAIL_DOMAINS`.

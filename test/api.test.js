@@ -231,14 +231,94 @@ test('incidents: drivers see only their own, admin sees all', async () => {
   assert.equal((await ivy.get('/api/incidents')).body.length, 2);
   assert.equal((await (await loggedIn(E('driver.pool'))).get('/api/incidents')).body.length, 0);
   const created = await ivy.post('/api/incidents', {
-    description: 'Test', weather: 'Other', weatherOther: 'Hail', roadSurface: 'Gravel', speedLimit: '80',
+    address: '12 Example St, Brisbane QLD', description: 'Test', weather: 'Other', weatherOther: 'Hail', roadSurface: 'Gravel', speedLimit: '80',
     visibility: 'Clear', thirdParty: { name: 'Tess' },
   });
   assert.equal(created.status, 201);
   assert.equal(created.body.thirdParty.name, 'Tess');
+  assert.equal(created.body.address, '12 Example St, Brisbane QLD');
   assert.equal((await ivy.post('/api/incidents', { description: '' })).status, 400);
-  assert.equal((await ivy.post('/api/incidents', { description: 'x', weather: 'Sandstorm' })).status, 400);
+  assert.equal((await ivy.post('/api/incidents', { address: 'x', description: '' })).status, 400);
+  assert.equal((await ivy.post('/api/incidents', { description: 'No address given' })).status, 400, 'address is required');
+  assert.equal((await ivy.post('/api/incidents', { address: 'x', description: 'x', weather: 'Sandstorm' })).status, 400);
   assert.equal((await (await loggedIn(E('admin'))).get('/api/incidents')).body.length, 3);
+});
+
+// 1x1 PNG
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const photoHeaders = { 'Content-Type': 'image/png', 'X-Filename': 'damage%201.png' };
+
+test('incident photos: owner attaches, admin sees everything, others are refused', async () => {
+  const ivy = await loggedIn(E('driver.incident'));
+  const created = await ivy.post('/api/incidents', { address: '5 Photo Rd, Brisbane QLD', description: 'Photo test' });
+  assert.equal(created.status, 201);
+  const id = created.body.id;
+  assert.deepEqual(created.body.photos, []);
+
+  const up = await ivy.raw('POST', `/api/incidents/${id}/photos`, PNG, photoHeaders);
+  assert.equal(up.status, 201);
+  assert.equal(up.body.filename, 'damage 1.png');
+  // Not an image, whatever the header claims.
+  assert.equal((await ivy.raw('POST', `/api/incidents/${id}/photos`, Buffer.from('<script>alert(1)</script> padding padding'), photoHeaders)).status, 400);
+  // Someone else's report is a 404, not a 403: it does not confirm the report exists.
+  const paul = await loggedIn(E('driver.pool'));
+  assert.equal((await paul.raw('POST', `/api/incidents/${id}/photos`, PNG, photoHeaders)).status, 404);
+  assert.equal((await paul.get(`/api/photos/${up.body.id}`)).status, 404);
+  assert.equal((await client().get(`/api/photos/${up.body.id}`)).status, 401);
+
+  const mine = (await ivy.get('/api/incidents')).body.find(i => i.id === id);
+  assert.equal(mine.photos.length, 1);
+  assert.equal(mine.mine, true);
+  assert.equal((await ivy.get(`/api/photos/${up.body.id}`)).status, 200);
+
+  const admin = await loggedIn(E('admin'));
+  const seen = (await admin.get('/api/incidents')).body.find(i => i.id === id);
+  assert.equal(seen.address, '5 Photo Rd, Brisbane QLD');
+  assert.equal(seen.photos.length, 1);
+  assert.equal(seen.license, 'QLD4000001');
+  assert.equal(seen.mine, false);
+  const file = await admin.raw('GET', `/api/photos/${up.body.id}`);
+  assert.equal(file.status, 200);
+
+  // Photo limit per report.
+  for (let n = 1; n < 8; n++) assert.equal((await ivy.raw('POST', `/api/incidents/${id}/photos`, PNG, photoHeaders)).status, 201);
+  assert.equal((await ivy.raw('POST', `/api/incidents/${id}/photos`, PNG, photoHeaders)).status, 409);
+});
+
+test('prestart photos: driver attaches to their own check, admin can list every prestart with photos', async () => {
+  const c = await loggedIn(E('driver.companycar.fault'));
+  const me = (await c.get('/api/company-car/me')).body;
+  assert.ok(me.prestart.id);
+  assert.deepEqual(me.prestart.photos, []);
+  const up = await c.raw('POST', `/api/prestarts/${me.prestart.id}/photos`, PNG, photoHeaders);
+  assert.equal(up.status, 201);
+  assert.equal((await (await loggedIn(E('driver.companycar'))).raw('POST', `/api/prestarts/${me.prestart.id}/photos`, PNG, photoHeaders)).status, 404);
+
+  assert.equal((await c.get('/api/company-car/prestarts')).status, 403, 'drivers cannot list every prestart');
+  const admin = await loggedIn(E('admin'));
+  const all = (await admin.get('/api/company-car/prestarts')).body;
+  const row = all.find(p => p.id === me.prestart.id);
+  assert.equal(row.driverName, 'Faye Fault');
+  assert.equal(row.rego.startsWith('NST-C'), true);
+  assert.equal(row.photos.length, 1);
+  assert.equal(row.items.tyres, false);
+  const activity = (await admin.get('/api/company-car/activity')).body.find(a => a.name === 'Faye Fault');
+  assert.equal(activity.prestart.photos.length, 1);
+  assert.equal((await admin.get(`/api/photos/${up.body.id}`)).status, 200);
+});
+
+test('admin sees full detail of completed bookings, including who reviewed them; drivers do not', async () => {
+  const admin = await loggedIn(E('admin'));
+  const all = (await admin.get('/api/bookings')).body;
+  const done = all.find(b => b.finishKm != null && b.reviewedAt);
+  assert.ok(done, 'seed data has a completed trip');
+  for (const k of ['driverName', 'license', 'email', 'department', 'costCentre', 'actualPickup', 'actualReturn', 'startKm', 'finishKm', 'fuelOk', 'reviewedAt']) {
+    assert.ok(k in done, k);
+  }
+  assert.equal(done.reviewedBy, 'Alex Admin');
+  const pool = await loggedIn(E('driver.pool'));
+  const others = (await pool.get('/api/bookings')).body.filter(b => !b.mine);
+  assert.ok(others.length > 0 && others.every(b => !('license' in b) && !('reviewedBy' in b) && !('finishKm' in b)));
 });
 
 test('admin in the user view: books for themselves, sees only their own incidents; default stays on-behalf', async () => {
